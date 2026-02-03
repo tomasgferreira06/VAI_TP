@@ -4,8 +4,16 @@ Módulo de gráficos.
 from src.charts.view1_global import (
     create_metrics_comparison_chart,
     create_roc_curves,
-    create_feature_importance_chart,
-    create_calibration_plot
+    create_calibration_plot,
+    create_advanced_calibration_plot,
+    create_calibration_subgroup_comparison,
+    compute_calibration_bins,
+    generate_calibration_insight,
+    get_fairness_warnings,
+    compute_subgroup_metrics,
+    METRIC_EXPLANATIONS,
+    DECISION_MODE_CONFIG,
+    CALIBRATION_DECISION_CONFIG
 )
 from src.charts.view2_tradeoffs import (
     create_precision_recall_curve,
@@ -33,8 +41,16 @@ __all__ = [
     # View 1
     "create_metrics_comparison_chart",
     "create_roc_curves",
-    "create_feature_importance_chart",
     "create_calibration_plot",
+    "create_advanced_calibration_plot",
+    "create_calibration_subgroup_comparison",
+    "compute_calibration_bins",
+    "generate_calibration_insight",
+    "get_fairness_warnings",
+    "compute_subgroup_metrics",
+    "METRIC_EXPLANATIONS",
+    "DECISION_MODE_CONFIG",
+    "CALIBRATION_DECISION_CONFIG",
     # View 2
     "create_precision_recall_curve",
     "create_threshold_analysis",

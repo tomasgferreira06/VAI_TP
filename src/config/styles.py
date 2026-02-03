@@ -113,7 +113,7 @@ body {{
 /* ══════════════════════════════════════════════════════════════════════════ */
 .nav-pills {{
     gap: 0.5rem;
-    margin-bottom: 2em;
+    margin-bottom: 2rem;
 }}
 
 .nav-pills .nav-link {{

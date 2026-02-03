@@ -2,7 +2,7 @@
 Callbacks do Dash para o dashboard.
 """
 import dash
-from dash import Input, Output, State, dcc
+from dash import Input, Output, State, dcc, ctx
 import dash_bootstrap_components as dbc
 from dash import html
 import pandas as pd
@@ -17,8 +17,9 @@ from src.components.cards import create_metric_card
 from src.charts import (
     create_metrics_comparison_chart,
     create_roc_curves,
-    create_feature_importance_chart,
     create_calibration_plot,
+    create_advanced_calibration_plot,
+    create_calibration_subgroup_comparison,
     create_precision_recall_curve,
     create_threshold_analysis,
     create_fp_fn_evolution_chart,
@@ -54,12 +55,26 @@ def register_callbacks(app, eval_df: pd.DataFrame, pipelines: dict, cat_cols: li
     @app.callback(
         Output("metrics-cards-row", "children"),
         [Input("threshold-slider", "value"),
-         Input("model-selector", "value")]
+         Input("model-selector", "value"),
+         Input("subgroup-selector", "value")]
     )
-    def update_metrics_cards(threshold, selected_model):
+    def update_metrics_cards(threshold, selected_model, subgroup):
         """Atualiza os cards de métricas."""
         df = recompute_with_threshold(eval_df, threshold)
-        model_df = df[df["model"] == selected_model]
+        
+        # Filtrar por subgrupo
+        if subgroup == "global":
+            filtered_df = df
+        elif subgroup in ["Male", "Female"]:
+            filtered_df = df[df["sex"] == subgroup]
+        elif subgroup == "White":
+            filtered_df = df[df["race"] == "White"]
+        elif subgroup == "Non-White":
+            filtered_df = df[df["race"] != "White"]
+        else:
+            filtered_df = df
+            
+        model_df = filtered_df[filtered_df["model"] == selected_model]
         metrics = global_metrics(model_df)
         
         cards = [
@@ -76,12 +91,98 @@ def register_callbacks(app, eval_df: pd.DataFrame, pipelines: dict, cat_cols: li
             for metric, label, color in cards
         ])
 
+    # ═══════════════════════════════════════════════════════════════════════════════
+    # VIEW 1: Controlos do Gráfico de Métricas (7 Funcionalidades)
+    # ═══════════════════════════════════════════════════════════════════════════════
+
+    @app.callback(
+        Output("display-mode-store", "data"),
+        [Input("btn-display-absolute", "n_clicks"),
+         Input("btn-display-relative", "n_clicks")],
+        prevent_initial_call=True
+    )
+    def update_display_mode(n_abs, n_rel):
+        """Alterna entre modo absoluto e relativo."""
+        triggered = ctx.triggered_id
+        if triggered == "btn-display-absolute":
+            return "absolute"
+        elif triggered == "btn-display-relative":
+            return "relative"
+        return "absolute"
+
+    @app.callback(
+        [Output("btn-display-absolute", "outline"),
+         Output("btn-display-relative", "outline"),
+         Output("btn-display-absolute", "style"),
+         Output("btn-display-relative", "style")],
+        Input("display-mode-store", "data")
+    )
+    def update_display_buttons(mode):
+        """Atualiza estilo dos botões de display."""
+        active_style = {}
+        inactive_style = {"backgroundColor": "transparent", "color": COLORS["primary"]}
+        
+        if mode == "absolute":
+            return False, True, active_style, inactive_style
+        return True, False, inactive_style, active_style
+
+    @app.callback(
+        Output("decision-mode-store", "data"),
+        [Input("btn-mode-balanced", "n_clicks"),
+         Input("btn-mode-precision", "n_clicks"),
+         Input("btn-mode-recall", "n_clicks")],
+        prevent_initial_call=True
+    )
+    def update_decision_mode(n_bal, n_prec, n_rec):
+        """Alterna entre modos de decisão."""
+        triggered = ctx.triggered_id
+        if triggered == "btn-mode-balanced":
+            return "balanced"
+        elif triggered == "btn-mode-precision":
+            return "precision"
+        elif triggered == "btn-mode-recall":
+            return "recall"
+        return "balanced"
+
+    @app.callback(
+        [Output("btn-mode-balanced", "outline"),
+         Output("btn-mode-precision", "outline"),
+         Output("btn-mode-recall", "outline"),
+         Output("btn-mode-balanced", "style"),
+         Output("btn-mode-precision", "style"),
+         Output("btn-mode-recall", "style")],
+        Input("decision-mode-store", "data")
+    )
+    def update_decision_buttons(mode):
+        """Atualiza estilo dos botões de decision mode."""
+        active_style = {}
+        inactive_style = {"backgroundColor": "transparent", "color": COLORS["primary"]}
+        
+        return (
+            mode != "balanced",
+            mode != "precision",
+            mode != "recall",
+            active_style if mode == "balanced" else inactive_style,
+            active_style if mode == "precision" else inactive_style,
+            active_style if mode == "recall" else inactive_style
+        )
+
     @app.callback(
         Output("metrics-comparison-chart", "figure"),
-        Input("threshold-slider", "value")
+        [Input("threshold-slider", "value"),
+         Input("display-mode-store", "data"),
+         Input("subgroup-selector", "value"),
+         Input("decision-mode-store", "data")]
     )
-    def update_metrics_comparison(threshold):
-        return create_metrics_comparison_chart(eval_df, threshold)
+    def update_metrics_comparison(threshold, display_mode, subgroup, decision_mode):
+        """Atualiza o gráfico de comparação de métricas."""
+        return create_metrics_comparison_chart(
+            eval_df, 
+            threshold, 
+            display_mode=display_mode,
+            subgroup=subgroup,
+            decision_mode=decision_mode
+        )
 
     @app.callback(
         Output("roc-curves-chart", "figure"),
@@ -90,19 +191,123 @@ def register_callbacks(app, eval_df: pd.DataFrame, pipelines: dict, cat_cols: li
     def update_roc_curves(_):
         return create_roc_curves(eval_df)
 
-    @app.callback(
-        Output("feature-importance-chart", "figure"),
-        Input("threshold-slider", "value")
-    )
-    def update_feature_importance(_):
-        return create_feature_importance_chart(pipelines, cat_cols, num_cols)
+    # ═══════════════════════════════════════════════════════════════════════════════
+    # CALIBRATION PLOT AVANÇADO
+    # ═══════════════════════════════════════════════════════════════════════════════
 
     @app.callback(
-        Output("calibration-plot-chart", "figure"),
-        Input("threshold-slider", "value")
+        Output("calib-bins-store", "data"),
+        [Input("btn-bins-5", "n_clicks"),
+         Input("btn-bins-10", "n_clicks"),
+         Input("btn-bins-20", "n_clicks")],
+        prevent_initial_call=True
     )
-    def update_calibration_plot(_):
-        return create_calibration_plot(eval_df)
+    def update_calib_bins(n5, n10, n20):
+        """Atualiza o número de bins do calibration plot."""
+        triggered = ctx.triggered_id
+        if triggered == "btn-bins-5":
+            return 5
+        elif triggered == "btn-bins-10":
+            return 10
+        elif triggered == "btn-bins-20":
+            return 20
+        return 10
+
+    @app.callback(
+        [Output("btn-bins-5", "outline"),
+         Output("btn-bins-10", "outline"),
+         Output("btn-bins-20", "outline"),
+         Output("btn-bins-5", "style"),
+         Output("btn-bins-10", "style"),
+         Output("btn-bins-20", "style")],
+        Input("calib-bins-store", "data")
+    )
+    def update_bins_buttons(bins):
+        """Atualiza estilo dos botões de bins."""
+        active_style = {}
+        inactive_style = {"backgroundColor": "transparent", "color": COLORS["primary"]}
+        return (
+            bins != 5,
+            bins != 10,
+            bins != 20,
+            active_style if bins == 5 else inactive_style,
+            active_style if bins == 10 else inactive_style,
+            active_style if bins == 20 else inactive_style
+        )
+
+    @app.callback(
+        Output("calib-decision-mode-store", "data"),
+        [Input("btn-calib-balanced", "n_clicks"),
+         Input("btn-calib-precision", "n_clicks"),
+         Input("btn-calib-recall", "n_clicks")],
+        prevent_initial_call=True
+    )
+    def update_calib_decision_mode(n_bal, n_prec, n_rec):
+        """Atualiza o modo de decisão do calibration plot."""
+        triggered = ctx.triggered_id
+        if triggered == "btn-calib-balanced":
+            return "balanced"
+        elif triggered == "btn-calib-precision":
+            return "precision"
+        elif triggered == "btn-calib-recall":
+            return "recall"
+        return "balanced"
+
+    @app.callback(
+        [Output("btn-calib-balanced", "outline"),
+         Output("btn-calib-precision", "outline"),
+         Output("btn-calib-recall", "outline"),
+         Output("btn-calib-balanced", "style"),
+         Output("btn-calib-precision", "style"),
+         Output("btn-calib-recall", "style")],
+        Input("calib-decision-mode-store", "data")
+    )
+    def update_calib_decision_buttons(mode):
+        """Atualiza estilo dos botões de decision mode do calibration."""
+        active_style = {}
+        inactive_style = {"backgroundColor": "transparent", "color": COLORS["primary"]}
+        return (
+            mode != "balanced",
+            mode != "precision",
+            mode != "recall",
+            active_style if mode == "balanced" else inactive_style,
+            active_style if mode == "precision" else inactive_style,
+            active_style if mode == "recall" else inactive_style
+        )
+
+    @app.callback(
+        [Output("calibration-plot-chart", "figure"),
+         Output("calibration-insight-text", "children")],
+        [Input("threshold-slider", "value"),
+         Input("calib-bins-store", "data"),
+         Input("calib-subgroup-selector", "value"),
+         Input("calib-decision-mode-store", "data"),
+         Input("calib-error-threshold", "value")]
+    )
+    def update_calibration_plot(threshold, n_bins, subgroup_mode, decision_mode, error_threshold):
+        """Atualiza o calibration plot avançado."""
+        if subgroup_mode == "global":
+            fig, insight = create_advanced_calibration_plot(
+                eval_df,
+                threshold=threshold,
+                n_bins=n_bins,
+                subgroup="global",
+                subgroup_value=None,
+                decision_mode=decision_mode,
+                error_threshold=error_threshold
+            )
+        else:
+            # Mostrar comparação entre subgrupos
+            fig, insight = create_calibration_subgroup_comparison(
+                eval_df,
+                threshold=threshold,
+                n_bins=n_bins,
+                subgroup_type=subgroup_mode,
+                decision_mode=decision_mode,
+                error_threshold=error_threshold
+            )
+        
+        return fig, insight
 
     # ═══════════════════════════════════════════════════════════════════════════════
     # VIEW 2: Trade-offs

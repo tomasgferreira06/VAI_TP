@@ -56,7 +56,7 @@ def main():
     print()
     
     # Executar
-    app.run(debug=False, port=8050)
+    app.run(debug=True, port=8050, dev_tools_hot_reload=True)
 
 
 if __name__ == "__main__":
