@@ -65,47 +65,10 @@ def create_metrics_controls() -> html.Div:
                     style={"minWidth": "120px", "fontSize": "0.85rem"}
                 )
             ], width="auto"),
-            
-            # Decision Mode
-            dbc.Col([
-                html.Label("Decision Mode", style={
-                    "fontSize": "0.7rem",
-                    "color": COLORS["text_muted"],
-                    "textTransform": "uppercase",
-                    "letterSpacing": "0.05em",
-                    "marginBottom": "0.25rem",
-                    "display": "block"
-                }),
-                dbc.ButtonGroup([
-                    dbc.Button(
-                        [html.I(className="bi bi-balance-scale", style={"marginRight": "0.25rem"}), "Balanced"],
-                        id="btn-mode-balanced",
-                        color="primary",
-                        outline=False,
-                        size="sm",
-                        className="active"
-                    ),
-                    dbc.Button(
-                        [html.I(className="bi bi-bullseye", style={"marginRight": "0.25rem"}), "Precision"],
-                        id="btn-mode-precision",
-                        color="primary",
-                        outline=True,
-                        size="sm"
-                    ),
-                    dbc.Button(
-                        [html.I(className="bi bi-search", style={"marginRight": "0.25rem"}), "Recall"],
-                        id="btn-mode-recall",
-                        color="primary",
-                        outline=True,
-                        size="sm"
-                    ),
-                ], size="sm")
-            ], width="auto"),
         ], className="g-3 align-items-end", justify="start"),
         
         # Stores para os estados
         dcc.Store(id="display-mode-store", data="absolute"),
-        dcc.Store(id="decision-mode-store", data="balanced"),
         
     ], style={
         "background": f"{COLORS['bg_hover']}44",
@@ -289,6 +252,140 @@ def create_tab_global() -> html.Div:
     ])
 
 
+def create_pr_curve_controls() -> html.Div:
+    """Cria os controlos para o PR curve avançado."""
+    return html.Div([
+        dbc.Row([
+            # Toggle: Show/Hide Area Under Curve
+            dbc.Col([
+                html.Label("Show Area", style={
+                    "fontSize": "0.7rem",
+                    "color": COLORS["text_muted"],
+                    "textTransform": "uppercase",
+                    "letterSpacing": "0.05em",
+                    "marginBottom": "0.25rem",
+                    "display": "block"
+                }),
+                dbc.Checklist(
+                    options=[{"label": " Fill under curve", "value": "show_area"}],
+                    value=[],
+                    id="pr-show-area-toggle",
+                    switch=True,
+                    style={"fontSize": "0.85rem"}
+                )
+            ], width="auto"),
+            
+            # Info icon with tooltip about AP
+            dbc.Col([
+                html.Div([
+                    html.I(
+                        className="bi bi-info-circle",
+                        id="pr-info-icon",
+                        style={
+                            "fontSize": "1rem",
+                            "color": COLORS["primary_light"],
+                            "cursor": "pointer",
+                            "marginTop": "1.5rem"
+                        }
+                    ),
+                    dbc.Tooltip(
+                        "Average Precision (AP) summarizes the PR curve across all thresholds. "
+                        "Higher AP indicates better overall precision-recall trade-off.",
+                        target="pr-info-icon",
+                        placement="right"
+                    )
+                ])
+            ], width="auto"),
+        ], className="g-3 align-items-end", justify="start"),
+        
+        # Store for PR curve settings
+        dcc.Store(id="pr-settings-store", data={"show_area": False}),
+        
+    ], style={
+        "background": f"{COLORS['bg_hover']}44",
+        "borderRadius": "8px",
+        "padding": "0.75rem 1rem",
+        "marginBottom": "0.75rem"
+    })
+
+
+def create_threshold_analysis_controls() -> html.Div:
+    """Cria os controlos para o gráfico Metrics vs Threshold avançado."""
+    return html.Div([
+        dbc.Row([
+            # Toggle: Show/Hide Precision
+            dbc.Col([
+                html.Label("Metrics", style={
+                    "fontSize": "0.7rem",
+                    "color": COLORS["text_muted"],
+                    "textTransform": "uppercase",
+                    "letterSpacing": "0.05em",
+                    "marginBottom": "0.25rem",
+                    "display": "block"
+                }),
+                dbc.Checklist(
+                    options=[
+                        {"label": " Precision", "value": "precision"},
+                        {"label": " Recall", "value": "recall"},
+                        {"label": " F1-Score", "value": "f1"},
+                    ],
+                    value=["precision", "recall", "f1"],  # All selected by default
+                    id="threshold-metrics-toggle",
+                    inline=True,
+                    style={"fontSize": "0.8rem"}
+                )
+            ], width="auto"),
+            
+            # Toggle: Overlay Models
+            dbc.Col([
+                html.Label("Models", style={
+                    "fontSize": "0.7rem",
+                    "color": COLORS["text_muted"],
+                    "textTransform": "uppercase",
+                    "letterSpacing": "0.05em",
+                    "marginBottom": "0.25rem",
+                    "display": "block"
+                }),
+                dbc.Checklist(
+                    options=[{"label": " Overlay both models", "value": "overlay"}],
+                    value=[],
+                    id="threshold-overlay-toggle",
+                    switch=True,
+                    style={"fontSize": "0.8rem"}
+                )
+            ], width="auto"),
+            
+            # Info icon with tooltip
+            dbc.Col([
+                html.Div([
+                    html.I(
+                        className="bi bi-info-circle",
+                        id="threshold-info-icon",
+                        style={
+                            "fontSize": "1rem",
+                            "color": COLORS["primary_light"],
+                            "cursor": "pointer",
+                            "marginTop": "1.5rem"
+                        }
+                    ),
+                    dbc.Tooltip(
+                        "This plot shows how Precision, Recall, and F1-Score change with different decision thresholds. "
+                        "The highlighted region and optimal point change based on the global Decision Mode.",
+                        target="threshold-info-icon",
+                        placement="right"
+                    )
+                ])
+            ], width="auto"),
+        ], className="g-3 align-items-end", justify="start"),
+        
+    ], style={
+        "background": f"{COLORS['bg_hover']}44",
+        "borderRadius": "8px",
+        "padding": "0.75rem 1rem",
+        "marginBottom": "0.75rem"
+    })
+
+
 def create_tab_tradeoffs() -> html.Div:
     """Tab de análise de trade-offs (precision vs recall)."""
     return html.Div([
@@ -298,7 +395,8 @@ def create_tab_tradeoffs() -> html.Div:
                 html.I(className="bi bi-info-circle", style={"fontSize": "1.1rem", "marginRight": "0.75rem", "color": COLORS["primary_light"]}),
                 html.Span(
                     "O threshold de decisão afeta diretamente o trade-off entre Precision e Recall. "
-                    "Um threshold mais alto aumenta a Precision (menos FP) mas reduz o Recall (mais FN).",
+                    "Um threshold mais alto aumenta a Precision (menos FP) mas reduz o Recall (mais FN). "
+                    "Use o Decision Mode nos controlos globais para enfatizar diferentes regiões operacionais.",
                     style={"color": COLORS["text_secondary"], "fontSize": "0.9rem"}
                 )
             ], style={"display": "flex", "alignItems": "center"})
@@ -314,11 +412,30 @@ def create_tab_tradeoffs() -> html.Div:
         dbc.Row([
             dbc.Col([
                 html.Div([
-                    dcc.Graph(id="pr-curve-chart", config={"displayModeBar": False})
+                    # PR Curve Controls
+                    create_pr_curve_controls(),
+                    # PR Curve Chart
+                    dcc.Graph(id="pr-curve-chart", config={"displayModeBar": False}),
+                    # Delta AP annotation
+                    html.Div(
+                        id="pr-delta-ap-text",
+                        style={
+                            "padding": "0.5rem 0.75rem",
+                            "background": f"{COLORS['bg_hover']}66",
+                            "borderRadius": "6px",
+                            "marginTop": "0.5rem",
+                            "fontSize": "0.8rem",
+                            "color": COLORS["text_secondary"],
+                            "textAlign": "center"
+                        }
+                    )
                 ], className="dashboard-card")
             ], lg=6),
             dbc.Col([
                 html.Div([
+                    # Threshold Analysis Controls
+                    create_threshold_analysis_controls(),
+                    # Threshold Analysis Chart
                     dcc.Graph(id="threshold-analysis-chart", config={"displayModeBar": False})
                 ], className="dashboard-card")
             ], lg=6)

@@ -17,9 +17,13 @@ from src.charts.view1_global import (
 )
 from src.charts.view2_tradeoffs import (
     create_precision_recall_curve,
+    create_precision_recall_curve_enhanced,
     create_threshold_analysis,
+    create_threshold_analysis_enhanced,
     create_fp_fn_evolution_chart,
-    create_threshold_impact_bars
+    create_threshold_impact_bars,
+    PR_DECISION_MODE_CONFIG,
+    THRESHOLD_DECISION_MODE_CONFIG
 )
 from src.charts.view3_errors import (
     create_confusion_matrix_heatmap,
@@ -53,9 +57,13 @@ __all__ = [
     "CALIBRATION_DECISION_CONFIG",
     # View 2
     "create_precision_recall_curve",
+    "create_precision_recall_curve_enhanced",
     "create_threshold_analysis",
+    "create_threshold_analysis_enhanced",
     "create_fp_fn_evolution_chart",
     "create_threshold_impact_bars",
+    "PR_DECISION_MODE_CONFIG",
+    "THRESHOLD_DECISION_MODE_CONFIG",
     # View 3
     "create_confusion_matrix_heatmap",
     "create_error_distribution_by_feature",

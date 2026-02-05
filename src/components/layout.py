@@ -123,6 +123,44 @@ def create_controls_sidebar(test_samples: int, positive_rate: float):
             
             html.Div(className="divider"),
             
+            # Global Decision Mode Control
+            html.Div([
+                html.Label("Decision Mode", className="control-label"),
+                html.P(
+                    "Affects metric emphasis across views",
+                    style={"fontSize": "0.7rem", "color": COLORS["text_muted"], "margin": "0.25rem 0 0.5rem 0"}
+                ),
+                html.Div([
+                    dbc.Button(
+                        [html.I(className="bi bi-balance-scale", style={"marginRight": "0.35rem"}), "Balanced"],
+                        id="btn-global-mode-balanced",
+                        color="primary",
+                        outline=False,
+                        size="sm",
+                        style={"width": "100%", "marginBottom": "0.35rem", "textAlign": "left"}
+                    ),
+                    dbc.Button(
+                        [html.I(className="bi bi-bullseye", style={"marginRight": "0.35rem"}), "Precision"],
+                        id="btn-global-mode-precision",
+                        color="primary",
+                        outline=True,
+                        size="sm",
+                        style={"width": "100%", "marginBottom": "0.35rem", "textAlign": "left"}
+                    ),
+                    dbc.Button(
+                        [html.I(className="bi bi-search", style={"marginRight": "0.35rem"}), "Recall"],
+                        id="btn-global-mode-recall",
+                        color="primary",
+                        outline=True,
+                        size="sm",
+                        style={"width": "100%", "textAlign": "left"}
+                    ),
+                ]),
+                dcc.Store(id="global-decision-mode-store", data="balanced"),
+            ], style={"marginBottom": "2rem"}),
+            
+            html.Div(className="divider"),
+            
             # Botões de Ação: Reset e Download
             html.Div([
                 html.Label("Actions", className="control-label"),

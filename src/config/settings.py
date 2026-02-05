@@ -69,7 +69,8 @@ SENSITIVE_COLUMNS = ["sex", "race"]
 
 MODEL_CONFIG = {
     "logreg": {
-        "max_iter": 2000
+        "max_iter": 2000,
+        "random_state": 42
     },
     "rf": {
         "n_estimators": 300,
@@ -80,6 +81,16 @@ MODEL_CONFIG = {
 
 # Default threshold
 DEFAULT_THRESHOLD = 0.5
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CONFIGURAÇÕES DE CACHE
+# ═══════════════════════════════════════════════════════════════════════════════
+
+CACHE_CONFIG = {
+    "enabled": True,           # Ativar/desativar cache
+    "cache_dir": ".cache",     # Diretório para ficheiros de cache
+}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

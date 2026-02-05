@@ -21,7 +21,9 @@ from src.charts import (
     create_advanced_calibration_plot,
     create_calibration_subgroup_comparison,
     create_precision_recall_curve,
+    create_precision_recall_curve_enhanced,
     create_threshold_analysis,
+    create_threshold_analysis_enhanced,
     create_fp_fn_evolution_chart,
     create_threshold_impact_bars,
     create_confusion_matrix_heatmap,
@@ -126,37 +128,46 @@ def register_callbacks(app, eval_df: pd.DataFrame, pipelines: dict, cat_cols: li
             return False, True, active_style, inactive_style
         return True, False, inactive_style, active_style
 
+    # ═══════════════════════════════════════════════════════════════════════════════
+    # GLOBAL DECISION MODE (in sidebar controls)
+    # ═══════════════════════════════════════════════════════════════════════════════
+
     @app.callback(
-        Output("decision-mode-store", "data"),
-        [Input("btn-mode-balanced", "n_clicks"),
-         Input("btn-mode-precision", "n_clicks"),
-         Input("btn-mode-recall", "n_clicks")],
+        Output("global-decision-mode-store", "data"),
+        [Input("btn-global-mode-balanced", "n_clicks"),
+         Input("btn-global-mode-precision", "n_clicks"),
+         Input("btn-global-mode-recall", "n_clicks")],
         prevent_initial_call=True
     )
-    def update_decision_mode(n_bal, n_prec, n_rec):
-        """Alterna entre modos de decisão."""
+    def update_global_decision_mode(n_bal, n_prec, n_rec):
+        """Alterna entre modos de decisão globais."""
         triggered = ctx.triggered_id
-        if triggered == "btn-mode-balanced":
+        if triggered == "btn-global-mode-balanced":
             return "balanced"
-        elif triggered == "btn-mode-precision":
+        elif triggered == "btn-global-mode-precision":
             return "precision"
-        elif triggered == "btn-mode-recall":
+        elif triggered == "btn-global-mode-recall":
             return "recall"
         return "balanced"
 
     @app.callback(
-        [Output("btn-mode-balanced", "outline"),
-         Output("btn-mode-precision", "outline"),
-         Output("btn-mode-recall", "outline"),
-         Output("btn-mode-balanced", "style"),
-         Output("btn-mode-precision", "style"),
-         Output("btn-mode-recall", "style")],
-        Input("decision-mode-store", "data")
+        [Output("btn-global-mode-balanced", "outline"),
+         Output("btn-global-mode-precision", "outline"),
+         Output("btn-global-mode-recall", "outline"),
+         Output("btn-global-mode-balanced", "style"),
+         Output("btn-global-mode-precision", "style"),
+         Output("btn-global-mode-recall", "style")],
+        Input("global-decision-mode-store", "data")
     )
-    def update_decision_buttons(mode):
-        """Atualiza estilo dos botões de decision mode."""
-        active_style = {}
-        inactive_style = {"backgroundColor": "transparent", "color": COLORS["primary"]}
+    def update_global_decision_buttons(mode):
+        """Atualiza estilo dos botões de decision mode global."""
+        active_style = {"width": "100%", "marginBottom": "0.35rem", "textAlign": "left"}
+        inactive_style = {"backgroundColor": "transparent", "color": COLORS["primary"], 
+                          "width": "100%", "marginBottom": "0.35rem", "textAlign": "left"}
+        # Last button doesn't need marginBottom
+        active_style_last = {"width": "100%", "textAlign": "left"}
+        inactive_style_last = {"backgroundColor": "transparent", "color": COLORS["primary"], 
+                               "width": "100%", "textAlign": "left"}
         
         return (
             mode != "balanced",
@@ -164,15 +175,15 @@ def register_callbacks(app, eval_df: pd.DataFrame, pipelines: dict, cat_cols: li
             mode != "recall",
             active_style if mode == "balanced" else inactive_style,
             active_style if mode == "precision" else inactive_style,
-            active_style if mode == "recall" else inactive_style
+            active_style_last if mode == "recall" else inactive_style_last
         )
 
     @app.callback(
         Output("metrics-comparison-chart", "figure"),
         [Input("threshold-slider", "value"),
          Input("display-mode-store", "data"),
-         Input("subgroup-selector", "value"),
-         Input("decision-mode-store", "data")]
+         Input("subgroup-selector", "value")],
+        State("global-decision-mode-store", "data")
     )
     def update_metrics_comparison(threshold, display_mode, subgroup, decision_mode):
         """Atualiza o gráfico de comparação de métricas."""
@@ -181,7 +192,7 @@ def register_callbacks(app, eval_df: pd.DataFrame, pipelines: dict, cat_cols: li
             threshold, 
             display_mode=display_mode,
             subgroup=subgroup,
-            decision_mode=decision_mode
+            decision_mode=decision_mode or "balanced"
         )
 
     @app.callback(
@@ -313,19 +324,63 @@ def register_callbacks(app, eval_df: pd.DataFrame, pipelines: dict, cat_cols: li
     # VIEW 2: Trade-offs
     # ═══════════════════════════════════════════════════════════════════════════════
 
+    # PR Curve Settings Store Update
     @app.callback(
-        Output("pr-curve-chart", "figure"),
-        Input("threshold-slider", "value")
+        Output("pr-settings-store", "data"),
+        Input("pr-show-area-toggle", "value"),
+        prevent_initial_call=True
     )
-    def update_pr_curve(_):
-        return create_precision_recall_curve(eval_df)
+    def update_pr_settings(show_area_values):
+        """Update PR curve settings based on toggle."""
+        show_area = "show_area" in show_area_values if show_area_values else False
+        return {"show_area": show_area}
+
+    @app.callback(
+        [Output("pr-curve-chart", "figure"),
+         Output("pr-delta-ap-text", "children")],
+        [Input("threshold-slider", "value"),
+         Input("global-decision-mode-store", "data"),
+         Input("pr-settings-store", "data")]
+    )
+    def update_pr_curve(threshold, decision_mode, pr_settings):
+        """Atualiza a curva PR com todas as funcionalidades enhanced."""
+        show_area = pr_settings.get("show_area", False) if pr_settings else False
+        
+        fig, delta_ap_text = create_precision_recall_curve_enhanced(
+            eval_df,
+            threshold=threshold,
+            decision_mode=decision_mode or "balanced",
+            show_area=show_area
+        )
+        
+        return fig, delta_ap_text
 
     @app.callback(
         Output("threshold-analysis-chart", "figure"),
-        Input("model-selector", "value")
+        [Input("model-selector", "value"),
+         Input("threshold-slider", "value"),
+         Input("global-decision-mode-store", "data"),
+         Input("threshold-metrics-toggle", "value"),
+         Input("threshold-overlay-toggle", "value")]
     )
-    def update_threshold_analysis(selected_model):
-        return create_threshold_analysis(eval_df, selected_model)
+    def update_threshold_analysis(selected_model, threshold, decision_mode, metrics_toggle, overlay_toggle):
+        """Atualiza o gráfico Metrics vs Threshold com funcionalidades enhanced."""
+        # Parse toggles
+        show_precision = "precision" in (metrics_toggle or [])
+        show_recall = "recall" in (metrics_toggle or [])
+        show_f1 = "f1" in (metrics_toggle or [])
+        overlay_models = "overlay" in (overlay_toggle or [])
+        
+        return create_threshold_analysis_enhanced(
+            eval_df,
+            selected_model=selected_model,
+            threshold=threshold,
+            decision_mode=decision_mode or "balanced",
+            show_precision=show_precision,
+            show_recall=show_recall,
+            show_f1=show_f1,
+            overlay_models=overlay_models
+        )
 
     @app.callback(
         Output("fp-fn-evolution-chart", "figure"),
@@ -437,15 +492,16 @@ def register_callbacks(app, eval_df: pd.DataFrame, pipelines: dict, cat_cols: li
     @app.callback(
         [Output("threshold-slider", "value"),
          Output("model-selector", "value"),
-         Output("sensitive-selector", "value")],
+         Output("sensitive-selector", "value"),
+         Output("global-decision-mode-store", "data", allow_duplicate=True)],
         Input("reset-button", "n_clicks"),
         prevent_initial_call=True
     )
     def reset_controls(n_clicks):
         """Reset todos os controlos para valores default."""
         if n_clicks:
-            return 0.5, "logreg", "sex"
-        return dash.no_update, dash.no_update, dash.no_update
+            return 0.5, "logreg", "sex", "balanced"
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
     # ═══════════════════════════════════════════════════════════════════════════════
     # BOTÃO DOWNLOAD/EXPORT

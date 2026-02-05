@@ -47,7 +47,7 @@ def create_confusion_matrix_heatmap(df: pd.DataFrame, selected_model: str, thres
         textfont={"size": 14, "color": "white"},
         colorscale=[
             [0, COLORS["bg_hover"]],
-            [0.5, COLORS["primary"] + "88"],
+            [0.5, "rgba(99, 102, 241, 0.53)"],  # primary com alpha
             [1, COLORS["primary"]]
         ],
         showscale=False,
