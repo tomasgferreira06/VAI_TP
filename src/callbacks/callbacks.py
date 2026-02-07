@@ -25,13 +25,21 @@ from src.charts import (
     create_threshold_analysis,
     create_threshold_analysis_enhanced,
     create_fp_fn_evolution_chart,
+    create_fp_fn_evolution_enhanced,
     create_threshold_impact_bars,
+    create_prediction_distribution_enhanced,
+    build_operating_points_df,
+    create_parallel_coordinates_operating_points,
+    create_selected_operating_points_table,
     create_confusion_matrix_heatmap,
-    create_error_distribution_by_feature,
+    create_advanced_confusion_matrix,
     create_error_rates_comparison,
+    create_error_tradeoff_scatter,
     create_fairness_accuracy_chart,
     create_fairness_rates_chart,
     create_fairness_disparity_chart,
+    create_fairness_horizon_chart,
+    HORIZON_METRIC_CONFIG,
     create_parallel_coordinates,
     create_radar_chart,
     create_sunburst_errors
@@ -182,8 +190,8 @@ def register_callbacks(app, eval_df: pd.DataFrame, pipelines: dict, cat_cols: li
         Output("metrics-comparison-chart", "figure"),
         [Input("threshold-slider", "value"),
          Input("display-mode-store", "data"),
-         Input("subgroup-selector", "value")],
-        State("global-decision-mode-store", "data")
+         Input("subgroup-selector", "value"),
+         Input("global-decision-mode-store", "data")]
     )
     def update_metrics_comparison(threshold, display_mode, subgroup, decision_mode):
         """Atualiza o gráfico de comparação de métricas."""
@@ -384,52 +392,203 @@ def register_callbacks(app, eval_df: pd.DataFrame, pipelines: dict, cat_cols: li
 
     @app.callback(
         Output("fp-fn-evolution-chart", "figure"),
-        Input("model-selector", "value")
+        [Input("model-selector", "value"),
+         Input("threshold-slider", "value"),
+         Input("global-decision-mode-store", "data"),
+         Input("fp-fn-display-toggle", "value")]
     )
-    def update_fp_fn_evolution(selected_model):
-        return create_fp_fn_evolution_chart(eval_df, selected_model)
+    def update_fp_fn_evolution(selected_model, threshold, decision_mode, display_mode):
+        """Atualiza o gráfico Errors vs Threshold com funcionalidades enhanced."""
+        show_counts = display_mode == "counts"
+        
+        return create_fp_fn_evolution_enhanced(
+            eval_df,
+            selected_model=selected_model,
+            threshold=threshold,
+            decision_mode=decision_mode or "balanced",
+            show_counts=show_counts
+        )
+
+
+    # ═══════════════════════════════════════════════════════════════════════════════
+    # VIEW 2: Parallel Coordinates Operating Points (Advanced Visualization)
+    # ═══════════════════════════════════════════════════════════════════════════════
 
     @app.callback(
-        Output("threshold-impact-chart", "figure"),
-        Input("threshold-slider", "value")
+        Output("pcp-operating-points-chart", "figure"),
+        [Input("threshold-slider", "value"),
+         Input("global-decision-mode-store", "data"),
+         Input("pcp-subgroup-mode", "value"),
+         Input("pcp-color-by", "value")]
     )
-    def update_threshold_impact(threshold):
-        return create_threshold_impact_bars(eval_df, threshold)
+    def update_pcp_operating_points(threshold, decision_mode, subgroup_mode, color_by):
+        """Atualiza o Parallel Coordinates Plot de operating points."""
+        # Build operating points dataframe
+        subgroup_attr = "sex" if subgroup_mode == "Sex" else "race" if subgroup_mode == "Race" else "sex"
+        
+        ops_df = build_operating_points_df(
+            eval_df,
+            models_selected=None,  # All models
+            thresholds=None,  # Default range
+            subgroup_mode=subgroup_mode,
+            subgroup_attr=subgroup_attr,
+            subgroup_pairs={
+                "sex": ("Male", "Female"),
+                "race": ("White", "Non-White")
+            }
+        )
+        
+        return create_parallel_coordinates_operating_points(
+            ops_df,
+            current_threshold=threshold,
+            decision_mode=decision_mode or "balanced",
+            color_by=color_by
+        )
+
+    @app.callback(
+        Output("pcp-selected-table-container", "children"),
+        [Input("threshold-slider", "value"),
+         Input("global-decision-mode-store", "data"),
+         Input("pcp-subgroup-mode", "value"),
+         Input("pcp-operating-points-chart", "restyleData")]
+    )
+    def update_pcp_selected_table(threshold, decision_mode, subgroup_mode, restyle_data):
+        """Atualiza a tabela de operating points selecionados."""
+        import dash_bootstrap_components as dbc
+        
+        # Build operating points dataframe
+        subgroup_attr = "sex" if subgroup_mode == "Sex" else "race" if subgroup_mode == "Race" else "sex"
+        
+        ops_df = build_operating_points_df(
+            eval_df,
+            models_selected=None,
+            thresholds=None,
+            subgroup_mode=subgroup_mode,
+            subgroup_attr=subgroup_attr,
+            subgroup_pairs={
+                "sex": ("Male", "Female"),
+                "race": ("White", "Non-White")
+            }
+        )
+        
+        # Get selected operating points table
+        table_df = create_selected_operating_points_table(
+            ops_df,
+            selected_indices=None,  # Show top points near threshold
+            current_threshold=threshold,
+            decision_mode=decision_mode or "balanced",
+            max_rows=6
+        )
+        
+        if len(table_df) == 0:
+            return html.Div("No operating points available", 
+                           style={"color": COLORS["text_muted"], "textAlign": "center"})
+        
+        # Create bootstrap table
+        return dbc.Table.from_dataframe(
+            table_df,
+            striped=True,
+            bordered=False,
+            hover=True,
+            responsive=True,
+            size="sm",
+            style={"fontSize": "0.8rem"}
+        )
 
     # ═══════════════════════════════════════════════════════════════════════════════
     # VIEW 3: Análise de Erros
     # ═══════════════════════════════════════════════════════════════════════════════
 
+    # Confusion Matrix Normalization Mode Toggle
+    @app.callback(
+        [Output("cm-norm-mode-store", "data"),
+         Output("btn-cm-counts", "outline"),
+         Output("btn-cm-pct-total", "outline"),
+         Output("btn-cm-pct-row", "outline"),
+         Output("btn-cm-pct-col", "outline")],
+        [Input("btn-cm-counts", "n_clicks"),
+         Input("btn-cm-pct-total", "n_clicks"),
+         Input("btn-cm-pct-row", "n_clicks"),
+         Input("btn-cm-pct-col", "n_clicks")],
+        prevent_initial_call=True
+    )
+    def update_cm_norm_mode(n1, n2, n3, n4):
+        triggered = ctx.triggered_id
+        modes = {
+            "btn-cm-counts": "counts",
+            "btn-cm-pct-total": "pct_total",
+            "btn-cm-pct-row": "pct_row",
+            "btn-cm-pct-col": "pct_col"
+        }
+        mode = modes.get(triggered, "counts")
+        outlines = [triggered != btn for btn in modes.keys()]
+        return mode, *outlines
+
+    # Confusion Matrix Comparison Mode Toggle
+    @app.callback(
+        [Output("cm-comparison-mode-store", "data"),
+         Output("btn-cm-single", "outline"),
+         Output("btn-cm-compare", "outline"),
+         Output("btn-cm-delta", "outline")],
+        [Input("btn-cm-single", "n_clicks"),
+         Input("btn-cm-compare", "n_clicks"),
+         Input("btn-cm-delta", "n_clicks")],
+        prevent_initial_call=True
+    )
+    def update_cm_comparison_mode(n1, n2, n3):
+        triggered = ctx.triggered_id
+        modes = {
+            "btn-cm-single": "single",
+            "btn-cm-compare": "side_by_side",
+            "btn-cm-delta": "delta"
+        }
+        mode = modes.get(triggered, "single")
+        outlines = [triggered != btn for btn in modes.keys()]
+        return mode, *outlines
+
     @app.callback(
         Output("confusion-matrix-chart", "figure"),
         [Input("model-selector", "value"),
-         Input("threshold-slider", "value")]
+         Input("threshold-slider", "value"),
+         Input("cm-norm-mode-store", "data"),
+         Input("cm-comparison-mode-store", "data")]
     )
-    def update_confusion_matrix(selected_model, threshold):
-        return create_confusion_matrix_heatmap(eval_df, selected_model, threshold)
+    def update_confusion_matrix(selected_model, threshold, norm_mode, comparison_mode):
+        return create_advanced_confusion_matrix(
+            eval_df, selected_model, threshold, 
+            norm_mode or "counts", 
+            comparison_mode or "single"
+        )
 
     @app.callback(
-        Output("error-rates-chart", "figure"),
-        Input("threshold-slider", "value")
+        Output("cm-mode-caption", "children"),
+        [Input("cm-norm-mode-store", "data"),
+         Input("cm-comparison-mode-store", "data")]
     )
-    def update_error_rates(threshold):
-        return create_error_rates_comparison(eval_df, threshold)
+    def update_cm_caption(norm_mode, comparison_mode):
+        norm_descriptions = {
+            "counts": "Showing raw counts (TP, TN, FP, FN).",
+            "pct_total": "Showing each cell as % of total dataset.",
+            "pct_row": "Row-normalized: Shows TPR, FPR, TNR, FNR rates (each row sums to 100%).",
+            "pct_col": "Column-normalized: Shows Precision, NPV rates (each column sums to 100%)."
+        }
+        comparison_descriptions = {
+            "single": "Single model view.",
+            "side_by_side": "Comparing both models side-by-side with same color scale.",
+            "delta": "Delta view: Positive = RF has more, Negative = LR has more."
+        }
+        norm_desc = norm_descriptions.get(norm_mode, "")
+        comp_desc = comparison_descriptions.get(comparison_mode, "")
+        return f"{norm_desc} {comp_desc} Hover cells for rich diagnostics."
 
     @app.callback(
-        Output("error-by-sex-chart", "figure"),
-        [Input("model-selector", "value"),
-         Input("threshold-slider", "value")]
+        Output("error-tradeoff-chart", "figure"),
+        [Input("threshold-slider", "value"),
+         Input("error-tradeoff-subgroup", "value")]
     )
-    def update_error_by_sex(selected_model, threshold):
-        return create_error_distribution_by_feature(eval_df, selected_model, "sex", threshold)
+    def update_error_tradeoff(threshold, subgroup):
+        return create_error_tradeoff_scatter(eval_df, threshold, subgroup)
 
-    @app.callback(
-        Output("error-by-race-chart", "figure"),
-        [Input("model-selector", "value"),
-         Input("threshold-slider", "value")]
-    )
-    def update_error_by_race(selected_model, threshold):
-        return create_error_distribution_by_feature(eval_df, selected_model, "race", threshold)
 
     # ═══════════════════════════════════════════════════════════════════════════════
     # VIEW 4: Fairness
@@ -458,6 +617,70 @@ def register_callbacks(app, eval_df: pd.DataFrame, pipelines: dict, cat_cols: li
     )
     def update_fairness_rates(sensitive_col, threshold):
         return create_fairness_rates_chart(eval_df, sensitive_col, threshold)
+
+    # ═══════════════════════════════════════════════════════════════════════════════
+    # VIEW 4: Horizon Graph (Advanced Fairness Visualization)
+    # ═══════════════════════════════════════════════════════════════════════════════
+
+    @app.callback(
+        [Output("horizon-fairness-chart", "figure"),
+         Output("horizon-band-legend", "children")],
+        [Input("sensitive-selector", "value"),
+         Input("threshold-slider", "value"),
+         Input("horizon-metric-selector", "value"),
+         Input("horizon-model-focus", "value")]
+    )
+    def update_horizon_chart(sensitive_col, threshold, metric_name, model_focus):
+        """Atualiza o Horizon Graph de fairness."""
+        fig = create_fairness_horizon_chart(
+            eval_df,
+            sensitive_col=sensitive_col,
+            current_threshold=threshold,
+            metric_name=metric_name,
+            model_focus=model_focus,
+            n_bands=4,
+        )
+
+        # Build dynamic band legend
+        cfg = HORIZON_METRIC_CONFIG.get(metric_name, HORIZON_METRIC_CONFIG["FNR"])
+        r, g, b = cfg["rgb"]
+        band_labels = ["Low", "Medium", "High", "Very High"]
+        band_opacities = [0.18, 0.38, 0.58, 0.82]
+
+        legend_items = []
+        for lbl, opa in zip(band_labels, band_opacities):
+            legend_items.append(
+                html.Span([
+                    html.Span("\u2588\u2588", style={
+                        "color": f"rgba({r},{g},{b},{opa})",
+                        "marginRight": "0.25rem",
+                        "fontSize": "0.95rem",
+                    }),
+                    html.Span(lbl, style={
+                        "color": COLORS["text_secondary"],
+                        "fontSize": "0.8rem",
+                        "marginRight": "0.75rem",
+                    }),
+                ])
+            )
+
+        legend = html.Div([
+            html.Span("Band Intensity:  ", style={
+                "fontWeight": "600",
+                "color": COLORS["text_secondary"],
+                "fontSize": "0.8rem",
+                "marginRight": "0.5rem",
+            }),
+            *legend_items
+        ], style={
+            "display": "flex",
+            "alignItems": "center",
+            "justifyContent": "center",
+            "flexWrap": "wrap",
+            "padding": "0.5rem 0",
+        })
+
+        return fig, legend
 
     # ═══════════════════════════════════════════════════════════════════════════════
     # VIEW 5: Visualizações Avançadas

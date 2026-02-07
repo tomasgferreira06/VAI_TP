@@ -22,7 +22,7 @@ def create_header():
                     html.Div([
                         html.H1("Model Evaluation Dashboard", className="main-title"),
                         html.P(
-                            "Análise comparativa de modelos de classificação — Indo além da accuracy global",
+                            "A Comparative Study of Classification Models Beyond Overall Accuracy",
                             className="subtitle"
                         )
                     ])
@@ -41,7 +41,7 @@ def create_header():
     ], style={
         "background": f"linear-gradient(135deg, {COLORS['bg_card']} 0%, {COLORS['bg_hover']}66 100%)",
         "borderBottom": f"1px solid {COLORS['border']}33",
-        "padding": "1.5rem 2rem",
+        "padding": "1.5rem 1.5rem",
         "marginBottom": "1.5rem"
     })
 

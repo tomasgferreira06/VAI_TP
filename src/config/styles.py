@@ -109,38 +109,90 @@ body {{
 }}
 
 /* ══════════════════════════════════════════════════════════════════════════ */
-/* TABS STYLING                                                                */
+/* TABS NAVIGATION — Vercel Style                                              */
 /* ══════════════════════════════════════════════════════════════════════════ */
+
+/* Main navigation bar */
 .nav-pills {{
-    gap: 0.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0;
+    padding: 0;
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid {COLORS['border']}44;
+    border-radius: 0;
     margin-bottom: 2rem;
+    padding-bottom: 0;
 }}
 
+/* Individual tab buttons */
 .nav-pills .nav-link {{
+    position: relative;
     color: {COLORS['text_secondary']};
-    font-weight: 500;
+    font-weight: 400;
     font-size: 0.875rem;
-    padding: 0.75rem 1.25rem;
-    border: 1px solid {COLORS['border']}33;
-    border-radius: 10px;
-    background: {COLORS['bg_hover']}22;
-    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-    margin-right: 0;
+    padding: 0.75rem 1rem;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    transition: color 0.15s ease;
+    margin: 0;
+    margin-bottom: -1px;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    white-space: nowrap;
 }}
 
+/* Tab icon styling */
+.nav-pills .nav-link i {{
+    font-size: 0.875rem;
+    opacity: 0.7;
+    transition: opacity 0.15s ease;
+}}
+
+/* Hover state */
 .nav-pills .nav-link:hover {{
     color: {COLORS['text_primary']};
-    background: {COLORS['bg_hover']}66;
-    border-color: {COLORS['primary']}44;
-    transform: translateY(-1px);
+    background: transparent;
 }}
 
+.nav-pills .nav-link:hover i {{
+    opacity: 1;
+}}
+
+/* Active state — Vercel underline style */
 .nav-pills .nav-link.active {{
-    color: {COLORS['bg_dark']} !important;
-    background: linear-gradient(135deg, {COLORS['primary']} 0%, {COLORS['primary_light']} 100%) !important;
-    border-color: {COLORS['primary']} !important;
-    font-weight: 600;
-    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+    color: {COLORS['text_primary']} !important;
+    background: transparent !important;
+    font-weight: 500;
+}}
+
+.nav-pills .nav-link.active::after {{
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: {COLORS['text_primary']};
+    border-radius: 1px 1px 0 0;
+}}
+
+/* Active tab icon */
+.nav-pills .nav-link.active i {{
+    opacity: 1;
+}}
+
+/* Focus state for accessibility */
+.nav-pills .nav-link:focus {{
+    outline: none;
+}}
+
+/* Tab content area */
+.tab-content {{
+    padding-top: 0.5rem;
 }}
 
 /* ══════════════════════════════════════════════════════════════════════════ */
@@ -221,6 +273,66 @@ body {{
     height: 1px;
     background: linear-gradient(90deg, transparent, {COLORS['border']}44, transparent);
     margin: 1.5rem 0;
+}}
+
+/* ══════════════════════════════════════════════════════════════════════════ */
+/* DARK TABLE STYLING                                                          */
+/* ══════════════════════════════════════════════════════════════════════════ */
+.dark-table-container {{
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid {COLORS['border']}33;
+}}
+
+.dark-table-container .table {{
+    margin-bottom: 0;
+    background: transparent;
+    color: {COLORS['text_primary']};
+    font-size: 0.8rem;
+}}
+
+.dark-table-container .table thead th {{
+    background: {COLORS['bg_hover']};
+    color: {COLORS['text_secondary']};
+    font-weight: 600;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    border-bottom: 1px solid {COLORS['border']}44;
+    border-top: none;
+    padding: 0.625rem 0.75rem;
+    white-space: nowrap;
+}}
+
+.dark-table-container .table tbody td {{
+    background: transparent;
+    color: {COLORS['text_primary']};
+    border-bottom: 1px solid {COLORS['border']}22;
+    padding: 0.5rem 0.75rem;
+    vertical-align: middle;
+}}
+
+.dark-table-container .table tbody tr:last-child td {{
+    border-bottom: none;
+}}
+
+.dark-table-container .table tbody tr:hover td {{
+    background: {COLORS['bg_hover']}44;
+}}
+
+.dark-table-container .table-striped tbody tr:nth-of-type(odd) td {{
+    background: {COLORS['bg_hover']}22;
+}}
+
+.dark-table-container .table-striped tbody tr:nth-of-type(odd):hover td {{
+    background: {COLORS['bg_hover']}44;
+}}
+
+/* Model badges in table */
+.dark-table-container .badge-logreg,
+.dark-table-container .badge-rf {{
+    font-size: 0.7rem;
+    padding: 0.2rem 0.5rem;
 }}
 
 /* ══════════════════════════════════════════════════════════════════════════ */

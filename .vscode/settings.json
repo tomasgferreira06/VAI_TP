@@ -1,0 +1,8 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "/^cd C:\\\\Users\\\\35191\\\\Documents\\\\GitHub\\\\VAI_TP; C:/Users/35191/Documents/GitHub/VAI_TP/venv/Scripts/python\\.exe -c \"\nimport pandas as pd, numpy as np\nfrom src\\.data\\.cache import load_cache\neval_df, pipelines = load_cache\\(\\)\nfrom src\\.charts\\.view4_fairness import create_fairness_horizon_chart\n\n# Test with different params\nf1 = create_fairness_horizon_chart\\(eval_df, 'sex', 0\\.5, 'FNR', 'both'\\)\nf2 = create_fairness_horizon_chart\\(eval_df, 'sex', 0\\.7, 'FNR', 'both'\\)\nf3 = create_fairness_horizon_chart\\(eval_df, 'sex', 0\\.5, 'FPR', 'both'\\)\nf4 = create_fairness_horizon_chart\\(eval_df, 'sex', 0\\.5, 'FNR', 'logreg'\\)\n\nprint\\('f1 traces:', len\\(f1\\.data\\), '\\| annotations:', len\\(f1\\.layout\\.annotations\\)\\)\nprint\\('f2 traces:', len\\(f2\\.data\\), '\\| annotations:', len\\(f2\\.layout\\.annotations\\)\\)\nprint\\('f3 traces:', len\\(f3\\.data\\), '\\| annotations:', len\\(f3\\.layout\\.annotations\\)\\)\nprint\\('f4 traces:', len\\(f4\\.data\\), '\\| annotations:', len\\(f4\\.layout\\.annotations\\)\\)\n\n# Check threshold annotation changed\nimport json\na1 = \\[a\\.text for a in f1\\.layout\\.annotations if 't=' in str\\(a\\.text\\)\\]\na2 = \\[a\\.text for a in f2\\.layout\\.annotations if 't=' in str\\(a\\.text\\)\\]\nprint\\('Threshold labels f1:', a1, '\\| f2:', a2\\)\nprint\\('f1 height:', f1\\.layout\\.height, '\\| f4 height:', f4\\.layout\\.height\\)\n\"\n$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    }
+}

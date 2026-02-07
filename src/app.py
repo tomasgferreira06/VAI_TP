@@ -141,7 +141,7 @@ def create_app(test_samples: int, positive_rate: float) -> Dash:
                     dbc.Tabs([
                         dbc.Tab(
                             create_tab_global(),
-                            label="Comparação Global",
+                            label="Global Comparison",
                             tab_id="tab-global",
                             label_style={"fontWeight": "500", "color": COLORS["text_secondary"]},
                             active_label_style={"color": COLORS["bg_dark"], "fontWeight": "600"}
@@ -155,7 +155,7 @@ def create_app(test_samples: int, positive_rate: float) -> Dash:
                         ),
                         dbc.Tab(
                             create_tab_errors(),
-                            label="Análise de Erros",
+                            label="Error Analysis",
                             tab_id="tab-errors",
                             label_style={"fontWeight": "500", "color": COLORS["text_secondary"]},
                             active_label_style={"color": COLORS["bg_dark"], "fontWeight": "600"}
@@ -169,7 +169,7 @@ def create_app(test_samples: int, positive_rate: float) -> Dash:
                         ),
                         dbc.Tab(
                             create_tab_advanced(),
-                            label="Avançado",
+                            label="Advanced",
                             tab_id="tab-advanced",
                             label_style={"fontWeight": "500", "color": COLORS["text_secondary"]},
                             active_label_style={"color": COLORS["bg_dark"], "fontWeight": "600"}

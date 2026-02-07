@@ -1114,12 +1114,12 @@ def create_fp_fn_evolution_chart(df: pd.DataFrame, selected_model: str) -> go.Fi
     )
     
     fig.update_layout(
-        title=f"Evolucao de Erros vs Threshold - {MODEL_NAMES.get(selected_model, selected_model)}",
+        title=f"Evolução de Erros vs Threshold - {MODEL_NAMES.get(selected_model, selected_model)}",
         height=380,
         legend=dict(
             orientation="h",
             yanchor="bottom",
-            y=1.08,
+            y=0.2,
             xanchor="center",
             x=0.25
         ),
@@ -1134,9 +1134,466 @@ def create_fp_fn_evolution_chart(df: pd.DataFrame, selected_model: str) -> go.Fi
     return fig
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# FP/FN EVOLUTION DECISION MODE CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+FP_FN_DECISION_MODE_CONFIG = {
+    "balanced": {
+        "label": "Balanced",
+        "annotation": "Operating point (Balanced)",
+        "description": "Minimizes total errors (FP + FN)"
+    },
+    "precision": {
+        "label": "Precision-focused",
+        "annotation": "Operating point (Precision-focused)",
+        "description": "Minimizes False Positives"
+    },
+    "recall": {
+        "label": "Recall-focused",
+        "annotation": "Operating point (Recall-focused)",
+        "description": "Minimizes False Negatives"
+    }
+}
+
+
+def _find_optimal_error_threshold(evo_df: pd.DataFrame, mode: str) -> dict:
+    """
+    Find the optimal operating point for errors based on decision mode.
+    
+    Args:
+        evo_df: DataFrame with threshold, FP, FN, FPR, FNR columns
+        mode: "balanced", "precision", or "recall"
+        
+    Returns:
+        dict with idx, threshold, FP, FN, FPR, FNR, total_errors
+    """
+    if mode == "balanced":
+        # Minimize total errors (FP + FN)
+        idx = evo_df["Total Errors"].idxmin()
+    elif mode == "precision":
+        # Minimize False Positives
+        idx = evo_df["FP"].idxmin()
+    else:  # recall
+        # Minimize False Negatives
+        idx = evo_df["FN"].idxmin()
+    
+    row = evo_df.loc[idx]
+    return {
+        "idx": idx,
+        "threshold": row["threshold"],
+        "FP": row["FP"],
+        "FN": row["FN"],
+        "FPR": row["FPR"],
+        "FNR": row["FNR"],
+        "total_errors": row["Total Errors"],
+        "error_rate": row["Error Rate"]
+    }
+
+
+def _compute_sensitivity_regions(evo_df: pd.DataFrame, mode: str) -> dict:
+    """
+    Compute regions of high sensitivity where small threshold changes cause large error changes.
+    
+    Args:
+        evo_df: DataFrame with threshold and error data
+        mode: Decision mode to determine which metric to analyze
+        
+    Returns:
+        dict with x0, x1 bounds of sensitive region
+    """
+    # Compute derivatives (rate of change)
+    fp_diff = np.abs(np.diff(evo_df["FP"].values))
+    fn_diff = np.abs(np.diff(evo_df["FN"].values))
+    thresholds = evo_df["threshold"].values
+    
+    if mode == "precision":
+        # Focus on FP sensitivity
+        sensitivity = fp_diff
+    elif mode == "recall":
+        # Focus on FN sensitivity
+        sensitivity = fn_diff
+    else:  # balanced
+        # Combined sensitivity
+        sensitivity = fp_diff + fn_diff
+    
+    # Find region with highest sensitivity (top 30%)
+    threshold_cutoff = np.percentile(sensitivity, 70)
+    high_sensitivity_mask = sensitivity >= threshold_cutoff
+    
+    # Get the threshold range
+    if np.any(high_sensitivity_mask):
+        indices = np.where(high_sensitivity_mask)[0]
+        x0 = thresholds[indices[0]]
+        x1 = thresholds[min(indices[-1] + 1, len(thresholds) - 1)]
+    else:
+        # Fallback to middle region
+        x0, x1 = 0.3, 0.6
+    
+    return {"x0": x0, "x1": x1}
+
+
+def create_fp_fn_evolution_enhanced(
+    df: pd.DataFrame,
+    selected_model: str,
+    threshold: float = 0.5,
+    decision_mode: str = "balanced",
+    show_counts: bool = True
+) -> go.Figure:
+    """
+    Enhanced FP/FN Evolution chart with decision-oriented interactions.
+    
+    Features:
+    - A) Link to global threshold slider with highlighted markers
+    - B) Rich tooltips for any point on curves
+    - C) Decision Mode integration from global controls
+    - D) Highlight regions of high sensitivity
+    - E) Toggle between counts and rates
+    
+    Args:
+        df: DataFrame de avaliação
+        selected_model: Modelo selecionado
+        threshold: Current global threshold value
+        decision_mode: "balanced", "precision", or "recall"
+        show_counts: True for absolute counts, False for rates
+        
+    Returns:
+        Figura Plotly
+    """
+    fig = go.Figure()
+    
+    mode_config = FP_FN_DECISION_MODE_CONFIG.get(decision_mode, FP_FN_DECISION_MODE_CONFIG["balanced"])
+    
+    model_df = df[df["model"] == selected_model]
+    y_true = model_df["y_true"].values
+    y_proba = model_df["y_proba"].values
+    total_samples = len(model_df)
+    
+    # Compute error evolution at each threshold
+    thresholds = np.linspace(0.1, 0.9, 33)
+    evolution_data = []
+    
+    for t in thresholds:
+        y_pred_at_t = (y_proba >= t).astype(int)
+        cm = confusion_matrix(y_true, y_pred_at_t)
+        
+        if cm.shape == (2, 2):
+            tn, fp, fn, tp = cm.ravel()
+        else:
+            tn, fp, fn, tp = 0, 0, 0, 0
+        
+        # Compute rates
+        fpr = fp / (fp + tn) if (fp + tn) > 0 else 0
+        fnr = fn / (fn + tp) if (fn + tp) > 0 else 0
+        
+        evolution_data.append({
+            "threshold": t,
+            "FP": fp,
+            "FN": fn,
+            "FPR": fpr,
+            "FNR": fnr,
+            "Total Errors": fp + fn,
+            "Error Rate": (fp + fn) / total_samples,
+            "FP_pct": fp / total_samples,
+            "FN_pct": fn / total_samples
+        })
+    
+    evo_df = pd.DataFrame(evolution_data)
+    
+    # Determine which values to plot
+    if show_counts:
+        fp_values = evo_df["FP"]
+        fn_values = evo_df["FN"]
+        y_label = "Count"
+        y_format = ",.0f"
+        fp_label = "False Positives"
+        fn_label = "False Negatives"
+    else:
+        fp_values = evo_df["FPR"]
+        fn_values = evo_df["FNR"]
+        y_label = "Rate"
+        y_format = ".1%"
+        fp_label = "FP Rate"
+        fn_label = "FN Rate"
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # D) HIGHLIGHT REGIONS OF HIGH SENSITIVITY
+    # ═══════════════════════════════════════════════════════════════════════════
+    
+    sensitivity_region = _compute_sensitivity_regions(evo_df, decision_mode)
+    
+    # Add sensitivity region highlight
+    if decision_mode == "precision":
+        region_color = COLORS["error"]
+        region_label = "High FP Sensitivity"
+    elif decision_mode == "recall":
+        region_color = COLORS["warning"]
+        region_label = "High FN Sensitivity"
+    else:
+        region_color = COLORS["secondary"]
+        region_label = "High Error Sensitivity"
+    
+    fig.add_shape(
+        type="rect",
+        x0=sensitivity_region["x0"],
+        x1=sensitivity_region["x1"],
+        y0=0,
+        y1=max(fp_values.max(), fn_values.max()) * 1.1 if show_counts else max(fp_values.max(), fn_values.max()) * 1.1,
+        fillcolor=region_color,
+        opacity=0.1,
+        layer="below",
+        line_width=0
+    )
+    
+    fig.add_annotation(
+        x=(sensitivity_region["x0"] + sensitivity_region["x1"]) / 2,
+        y=max(fp_values.max(), fn_values.max()) * 1.05 if show_counts else max(fp_values.max(), fn_values.max()) * 1.05,
+        text=region_label,
+        showarrow=False,
+        font=dict(size=9, color=region_color),
+        opacity=0.8
+    )
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # B) RICH TOOLTIPS FOR CURVES
+    # ═══════════════════════════════════════════════════════════════════════════
+    
+    # Build rich hover texts
+    fp_hover_texts = []
+    fn_hover_texts = []
+    
+    for _, row in evo_df.iterrows():
+        fp_hover = (
+            f"<b>False Positives</b><br>"
+            f"Threshold: {row['threshold']:.3f}<br>"
+            f"─────────────<br>"
+            f"FP: {row['FP']:,.0f} ({row['FP_pct']:.1%})<br>"
+            f"FN: {row['FN']:,.0f} ({row['FN_pct']:.1%})<br>"
+            f"─────────────<br>"
+            f"FPR: {row['FPR']:.2%}<br>"
+            f"FNR: {row['FNR']:.2%}<br>"
+            f"Total Errors: {row['Total Errors']:,.0f}"
+        )
+        fn_hover = (
+            f"<b>False Negatives</b><br>"
+            f"Threshold: {row['threshold']:.3f}<br>"
+            f"─────────────<br>"
+            f"FP: {row['FP']:,.0f} ({row['FP_pct']:.1%})<br>"
+            f"FN: {row['FN']:,.0f} ({row['FN_pct']:.1%})<br>"
+            f"─────────────<br>"
+            f"FPR: {row['FPR']:.2%}<br>"
+            f"FNR: {row['FNR']:.2%}<br>"
+            f"Total Errors: {row['Total Errors']:,.0f}"
+        )
+        fp_hover_texts.append(fp_hover)
+        fn_hover_texts.append(fn_hover)
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # PLOT FP AND FN CURVES
+    # ═══════════════════════════════════════════════════════════════════════════
+    
+    fig.add_trace(go.Scatter(
+        x=evo_df["threshold"],
+        y=fp_values,
+        mode="lines+markers",
+        name=fp_label,
+        line={"color": COLORS["error"], "width": 2.5},
+        marker={"size": 6, "symbol": "circle"},
+        hovertemplate="%{customdata}<extra></extra>",
+        customdata=fp_hover_texts,
+        legendgroup="fp"
+    ))
+    
+    fig.add_trace(go.Scatter(
+        x=evo_df["threshold"],
+        y=fn_values,
+        mode="lines+markers",
+        name=fn_label,
+        line={"color": COLORS["warning"], "width": 2.5},
+        marker={"size": 6, "symbol": "diamond"},
+        hovertemplate="%{customdata}<extra></extra>",
+        customdata=fn_hover_texts,
+        legendgroup="fn"
+    ))
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # A) CURRENT THRESHOLD MARKER (LINKED TO GLOBAL SLIDER)
+    # ═══════════════════════════════════════════════════════════════════════════
+    
+    # Find closest threshold in our computed range
+    thresh_idx = np.argmin(np.abs(thresholds - threshold))
+    current_row = evo_df.iloc[thresh_idx]
+    
+    # Add vertical line for current threshold
+    fig.add_vline(
+        x=threshold,
+        line_dash="solid",
+        line_color=COLORS["primary"],
+        line_width=2.5,
+        opacity=0.9
+    )
+    
+    # Current threshold values for markers
+    if show_counts:
+        current_fp = current_row["FP"]
+        current_fn = current_row["FN"]
+    else:
+        current_fp = current_row["FPR"]
+        current_fn = current_row["FNR"]
+    
+    # Rich tooltip for current threshold markers
+    current_hover = (
+        f"<b>Current Threshold</b><br>"
+        f"Threshold: {current_row['threshold']:.3f}<br>"
+        f"─────────────<br>"
+        f"FP: {current_row['FP']:,.0f} ({current_row['FP_pct']:.1%})<br>"
+        f"FN: {current_row['FN']:,.0f} ({current_row['FN_pct']:.1%})<br>"
+        f"─────────────<br>"
+        f"FPR: {current_row['FPR']:.2%}<br>"
+        f"FNR: {current_row['FNR']:.2%}<br>"
+        f"Total Errors: {current_row['Total Errors']:,.0f}"
+    )
+    
+    # Add markers at current threshold
+    fig.add_trace(go.Scatter(
+        x=[current_row["threshold"]],
+        y=[current_fp],
+        mode="markers",
+        marker=dict(size=14, color=COLORS["error"], symbol="circle", line=dict(color="white", width=3)),
+        hovertemplate=current_hover + "<extra></extra>",
+        showlegend=False,
+        legendgroup="fp"
+    ))
+    
+    fig.add_trace(go.Scatter(
+        x=[current_row["threshold"]],
+        y=[current_fn],
+        mode="markers",
+        marker=dict(size=14, color=COLORS["warning"], symbol="diamond", line=dict(color="white", width=3)),
+        hovertemplate=current_hover + "<extra></extra>",
+        showlegend=False,
+        legendgroup="fn"
+    ))
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # C) OPTIMAL OPERATING POINT BASED ON DECISION MODE
+    # ═══════════════════════════════════════════════════════════════════════════
+    
+    optimal = _find_optimal_error_threshold(evo_df, decision_mode)
+    
+    # Add optimal threshold vertical line (dashed)
+    fig.add_vline(
+        x=optimal["threshold"],
+        line_dash="dash",
+        line_color=COLORS["success"],
+        line_width=2,
+        opacity=0.8
+    )
+    
+    # Optimal values for markers
+    if show_counts:
+        optimal_fp = optimal["FP"]
+        optimal_fn = optimal["FN"]
+    else:
+        optimal_fp = optimal["FPR"]
+        optimal_fn = optimal["FNR"]
+    
+    # Optimal point tooltip
+    optimal_hover = (
+        f"<b>{mode_config['annotation']}</b><br>"
+        f"Threshold: {optimal['threshold']:.3f}<br>"
+        f"─────────────<br>"
+        f"FP: {optimal['FP']:,.0f}<br>"
+        f"FN: {optimal['FN']:,.0f}<br>"
+        f"─────────────<br>"
+        f"FPR: {optimal['FPR']:.2%}<br>"
+        f"FNR: {optimal['FNR']:.2%}<br>"
+        f"Total Errors: {optimal['total_errors']:,.0f}"
+    )
+    
+    # Add star markers at optimal point
+    fig.add_trace(go.Scatter(
+        x=[optimal["threshold"]],
+        y=[optimal_fp],
+        mode="markers",
+        marker=dict(size=12, color=COLORS["success"], symbol="star", line=dict(color="white", width=2)),
+        hovertemplate=optimal_hover + "<extra></extra>",
+        showlegend=False,
+        legendgroup="fp"
+    ))
+    
+    fig.add_trace(go.Scatter(
+        x=[optimal["threshold"]],
+        y=[optimal_fn],
+        mode="markers",
+        marker=dict(size=12, color=COLORS["success"], symbol="star", line=dict(color="white", width=2)),
+        hovertemplate=optimal_hover + "<extra></extra>",
+        showlegend=False,
+        legendgroup="fn"
+    ))
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # LEGEND ENTRIES FOR SYMBOLS
+    # ═══════════════════════════════════════════════════════════════════════════
+    
+    # Add legend entry for current threshold marker
+    fig.add_trace(go.Scatter(
+        x=[None], y=[None],
+        mode="markers",
+        marker=dict(size=14, color=COLORS["primary"], symbol="circle", line=dict(color="white", width=3)),
+        name=f"Current Threshold ({threshold:.2f})",
+        showlegend=True,
+        hoverinfo="skip"
+    ))
+    
+    # Add legend entry for optimal point
+    fig.add_trace(go.Scatter(
+        x=[None], y=[None],
+        mode="markers",
+        marker=dict(size=12, color=COLORS["success"], symbol="star", line=dict(color="white", width=2)),
+        name=f"★ Optimal ({mode_config['label']})",
+        showlegend=True,
+        hoverinfo="skip"
+    ))
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # LAYOUT
+    # ═══════════════════════════════════════════════════════════════════════════
+    
+    model_name = MODEL_NAMES.get(selected_model, selected_model)
+    mode_suffix = f"{'Counts' if show_counts else 'Rates'} • Mode: {mode_config['label']}"
+    
+    fig.update_layout(
+        title=dict(
+            text=f"Errors vs Threshold - {model_name} • {mode_suffix}",
+            x=0.01,
+            xanchor="left",
+            font=dict(size=14)
+        ),
+        xaxis_title="Decision Threshold",
+        yaxis_title=y_label,
+        xaxis_range=[0.08, 0.92],
+        yaxis_tickformat=y_format if not show_counts else ",",
+        height=420,
+        legend=dict(
+            orientation="h",
+            yanchor="top",
+            y=1.15,
+            xanchor="center",
+            x=0.5,
+            font=dict(size=10)
+        ),
+        margin=dict(t=100, b=60),
+        transition=dict(duration=400, easing="cubic-in-out")
+    )
+    
+    return fig
+
+
 def create_threshold_impact_bars(df: pd.DataFrame, threshold: float = 0.5) -> go.Figure:
     """
     Impacto do threshold nas predições.
+    Legacy function for backward compatibility.
     
     Args:
         df: DataFrame de avaliação
@@ -1145,7 +1602,45 @@ def create_threshold_impact_bars(df: pd.DataFrame, threshold: float = 0.5) -> go
     Returns:
         Figura Plotly
     """
+    return create_prediction_distribution_enhanced(df, threshold)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PREDICTION DISTRIBUTION DECISION MODE CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+PREDICTION_DIST_MODE_CONFIG = {
+    "balanced": {
+        "label": "Balanced",
+        "annotation": "Balanced operating point",
+        "description": "Standard threshold optimized for F1 balance"
+    },
+    "precision": {
+        "label": "Precision-focused",
+        "annotation": "Precision-focused: fewer positives, higher confidence",
+        "description": "Higher threshold → fewer but more confident positive predictions"
+    },
+    "recall": {
+        "label": "Recall-focused",
+        "annotation": "Recall-focused: more positives, higher coverage",
+        "description": "Lower threshold → more positive predictions for coverage"
+    }
+}
+
+
+def _compute_prediction_distribution(df: pd.DataFrame, threshold: float) -> pd.DataFrame:
+    """
+    Compute prediction distribution for all models at a given threshold.
+    
+    Args:
+        df: DataFrame with model predictions
+        threshold: Decision threshold
+        
+    Returns:
+        DataFrame with model, predicted positive/negative counts and percentages
+    """
     results = []
+    total_samples = len(df[df["model"] == df["model"].unique()[0]])
     
     for model in df["model"].unique():
         model_df = df[df["model"] == model]
@@ -1155,42 +1650,895 @@ def create_threshold_impact_bars(df: pd.DataFrame, threshold: float = 0.5) -> go
         n_negative = (temp_df["y_pred"] == 0).sum()
         
         results.append({
-            "model": MODEL_NAMES.get(model, model),
-            "Predicted Positive (>50K)": n_positive,
-            "Predicted Negative (≤50K)": n_negative
+            "model": model,
+            "model_name": MODEL_NAMES.get(model, model),
+            "positive": n_positive,
+            "negative": n_negative,
+            "positive_pct": n_positive / total_samples,
+            "negative_pct": n_negative / total_samples,
+            "total": total_samples
         })
     
-    result_df = pd.DataFrame(results)
+    return pd.DataFrame(results)
+
+
+def _detect_large_change(prev_dist: pd.DataFrame, curr_dist: pd.DataFrame, 
+                          change_threshold: float = 0.05) -> dict:
+    """
+    Detect if there's a large change in prediction distribution between thresholds.
     
+    Args:
+        prev_dist: Previous distribution dataframe
+        curr_dist: Current distribution dataframe
+        change_threshold: Percentage change to consider "large"
+        
+    Returns:
+        dict with change detection info per model
+    """
+    changes = {}
+    
+    for model in curr_dist["model"].unique():
+        curr_row = curr_dist[curr_dist["model"] == model].iloc[0]
+        prev_row = prev_dist[prev_dist["model"] == model].iloc[0] if len(prev_dist) > 0 else None
+        
+        if prev_row is not None:
+            delta_positive = abs(curr_row["positive_pct"] - prev_row["positive_pct"])
+            delta_negative = abs(curr_row["negative_pct"] - prev_row["negative_pct"])
+            
+            is_large_change = delta_positive >= change_threshold or delta_negative >= change_threshold
+            
+            changes[model] = {
+                "is_large": is_large_change,
+                "delta_positive": curr_row["positive"] - prev_row["positive"],
+                "delta_negative": curr_row["negative"] - prev_row["negative"],
+                "delta_positive_pct": delta_positive,
+                "delta_negative_pct": delta_negative
+            }
+        else:
+            changes[model] = {"is_large": False, "delta_positive": 0, "delta_negative": 0}
+    
+    return changes
+
+
+def create_prediction_distribution_enhanced(
+    df: pd.DataFrame,
+    threshold: float = 0.5,
+    decision_mode: str = "balanced",
+    show_delta_view: bool = False,
+    previous_threshold: float = None
+) -> go.Figure:
+    """
+    Enhanced Prediction Distribution chart with decision-oriented interactions.
+    
+    Features:
+    - A) Full link to global threshold slider with real-time updates
+    - B) Rich tooltips on bars with counts, percentages, and deltas
+    - C) Decision Mode integration from global controls
+    - D) Highlight large changes in distribution when threshold shifts
+    - F) Delta view between models (RF - LR difference)
+    
+    Args:
+        df: DataFrame de avaliação
+        threshold: Current global threshold value
+        decision_mode: "balanced", "precision", or "recall"
+        show_delta_view: True to show difference between models, False for absolute
+        previous_threshold: Previous threshold for change detection (optional)
+        
+    Returns:
+        Figura Plotly
+    """
     fig = go.Figure()
     
-    fig.add_trace(go.Bar(
-        name="Pred. Positive (>50K)",
-        x=result_df["model"],
-        y=result_df["Predicted Positive (>50K)"],
-        marker_color=COLORS["success"],
-        text=result_df["Predicted Positive (>50K)"],
-        textposition="inside",
-        textfont={"color": "white", "size": 11}
-    ))
+    mode_config = PREDICTION_DIST_MODE_CONFIG.get(decision_mode, PREDICTION_DIST_MODE_CONFIG["balanced"])
     
-    fig.add_trace(go.Bar(
-        name="Pred. Negative (≤50K)",
-        x=result_df["model"],
-        y=result_df["Predicted Negative (≤50K)"],
-        marker_color=COLORS["text_muted"],
-        text=result_df["Predicted Negative (≤50K)"],
-        textposition="inside",
-        textfont={"color": "white", "size": 11}
-    ))
+    # Compute current distribution
+    curr_dist = _compute_prediction_distribution(df, threshold)
+    total_samples = curr_dist.iloc[0]["total"]
     
+    # Compute previous distribution for change detection (D)
+    if previous_threshold is not None and previous_threshold != threshold:
+        prev_dist = _compute_prediction_distribution(df, previous_threshold)
+        changes = _detect_large_change(prev_dist, curr_dist)
+    else:
+        # Use slightly different threshold for sensitivity indication
+        prev_threshold_check = max(0.1, threshold - 0.05)
+        prev_dist = _compute_prediction_distribution(df, prev_threshold_check)
+        changes = _detect_large_change(prev_dist, curr_dist, change_threshold=0.03)
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # F) DELTA VIEW BETWEEN MODELS
+    # ═══════════════════════════════════════════════════════════════════════════
+    
+    if show_delta_view and len(curr_dist) == 2:
+        # Compute delta between models (second - first, typically RF - LR)
+        model1 = curr_dist.iloc[0]
+        model2 = curr_dist.iloc[1]
+        
+        delta_positive = model2["positive"] - model1["positive"]
+        delta_negative = model2["negative"] - model1["negative"]
+        delta_positive_pct = model2["positive_pct"] - model1["positive_pct"]
+        delta_negative_pct = model2["negative_pct"] - model1["negative_pct"]
+        
+        # Build hover texts for delta view
+        positive_hover = (
+            f"<b>Δ Predicted Positive (>50K)</b><br>"
+            f"Threshold: {threshold:.3f}<br>"
+            f"─────────────<br>"
+            f"{model2['model_name']}: {model2['positive']:,} ({model2['positive_pct']:.1%})<br>"
+            f"{model1['model_name']}: {model1['positive']:,} ({model1['positive_pct']:.1%})<br>"
+            f"─────────────<br>"
+            f"<b>Difference: {'+' if delta_positive > 0 else ''}{delta_positive:,}</b><br>"
+            f"({'+' if delta_positive_pct > 0 else ''}{delta_positive_pct:.1%} of dataset)"
+        )
+        
+        negative_hover = (
+            f"<b>Δ Predicted Negative (≤50K)</b><br>"
+            f"Threshold: {threshold:.3f}<br>"
+            f"─────────────<br>"
+            f"{model2['model_name']}: {model2['negative']:,} ({model2['negative_pct']:.1%})<br>"
+            f"{model1['model_name']}: {model1['negative']:,} ({model1['negative_pct']:.1%})<br>"
+            f"─────────────<br>"
+            f"<b>Difference: {'+' if delta_negative > 0 else ''}{delta_negative:,}</b><br>"
+            f"({'+' if delta_negative_pct > 0 else ''}{delta_negative_pct:.1%} of dataset)"
+        )
+        
+        # Determine bar colors based on direction
+        positive_color = COLORS["success"] if delta_positive >= 0 else COLORS["error"]
+        negative_color = COLORS["text_muted"] if delta_negative <= 0 else COLORS["warning"]
+        
+        # Create diverging bar chart
+        categories = ["Predicted Positive", "Predicted Negative"]
+        deltas = [delta_positive, delta_negative]
+        hover_texts = [positive_hover, negative_hover]
+        bar_colors = [positive_color, negative_color]
+        
+        for i, (cat, delta, hover, color) in enumerate(zip(categories, deltas, hover_texts, bar_colors)):
+            fig.add_trace(go.Bar(
+                name=cat,
+                x=[cat],
+                y=[delta],
+                marker_color=color,
+                text=[f"{'+' if delta > 0 else ''}{delta:,}"],
+                textposition="outside" if abs(delta) < total_samples * 0.1 else "inside",
+                textfont={"size": 12, "color": "white" if abs(delta) >= total_samples * 0.1 else color},
+                hovertemplate=hover + "<extra></extra>",
+                showlegend=False
+            ))
+        
+        # Add zero line
+        fig.add_hline(y=0, line_dash="solid", line_color=COLORS["text_muted"], line_width=1.5)
+        
+        # Add interpretation annotation
+        if delta_positive > 0:
+            interp_text = f"{model2['model_name']} predicts {abs(delta_positive):,} more positives"
+        else:
+            interp_text = f"{model1['model_name']} predicts {abs(delta_positive):,} more positives"
+        
+        fig.add_annotation(
+            x=0.5, y=1.12,
+            xref="paper", yref="paper",
+            text=interp_text,
+            showarrow=False,
+            font=dict(size=10, color=COLORS["text_secondary"]),
+            bgcolor="rgba(128, 128, 128, 0.3)",
+            borderpad=4
+        )
+        
+        # Layout for delta view
+        fig.update_layout(
+            title=dict(
+                text=f"Model Difference: {model2['model_name']} − {model1['model_name']} (Threshold = {threshold:.2f})",
+                font=dict(size=14)
+            ),
+            xaxis_title="",
+            yaxis_title="Difference in Predictions",
+            yaxis_zeroline=True,
+            height=400,
+            showlegend=False,
+            transition=dict(duration=400, easing="cubic-in-out")
+        )
+        
+    else:
+        # ═══════════════════════════════════════════════════════════════════════
+        # ABSOLUTE DISTRIBUTION VIEW (STACKED BARS)
+        # ═══════════════════════════════════════════════════════════════════════
+        
+        # D) Check for large changes and prepare highlighting
+        any_large_change = any(changes[m]["is_large"] for m in changes)
+        
+        # Build rich hover texts (B)
+        positive_hovers = []
+        negative_hovers = []
+        
+        for _, row in curr_dist.iterrows():
+            model = row["model"]
+            change_info = changes.get(model, {"delta_positive": 0, "delta_negative": 0})
+            
+            # Positive bar hover
+            pos_hover = (
+                f"<b>{row['model_name']}</b><br>"
+                f"Prediction: Positive (>50K)<br>"
+                f"─────────────<br>"
+                f"Count: {row['positive']:,}<br>"
+                f"Share: {row['positive_pct']:.1%} of dataset<br>"
+            )
+            if change_info["delta_positive"] != 0:
+                pos_hover += (
+                    f"─────────────<br>"
+                    f"Δ from prev: {'+' if change_info['delta_positive'] > 0 else ''}{change_info['delta_positive']:,}"
+                )
+            positive_hovers.append(pos_hover)
+            
+            # Negative bar hover
+            neg_hover = (
+                f"<b>{row['model_name']}</b><br>"
+                f"Prediction: Negative (≤50K)<br>"
+                f"─────────────<br>"
+                f"Count: {row['negative']:,}<br>"
+                f"Share: {row['negative_pct']:.1%} of dataset<br>"
+            )
+            if change_info["delta_negative"] != 0:
+                neg_hover += (
+                    f"─────────────<br>"
+                    f"Δ from prev: {'+' if change_info['delta_negative'] > 0 else ''}{change_info['delta_negative']:,}"
+                )
+            negative_hovers.append(neg_hover)
+        
+        # D) Determine bar styling based on sensitivity
+        positive_line_width = []
+        negative_line_width = []
+        positive_line_color = []
+        negative_line_color = []
+        
+        for _, row in curr_dist.iterrows():
+            model = row["model"]
+            if changes.get(model, {}).get("is_large", False):
+                positive_line_width.append(3)
+                negative_line_width.append(3)
+                positive_line_color.append(COLORS["warning"])
+                negative_line_color.append(COLORS["warning"])
+            else:
+                positive_line_width.append(0)
+                negative_line_width.append(0)
+                positive_line_color.append("rgba(0,0,0,0)")
+                negative_line_color.append("rgba(0,0,0,0)")
+        
+        # Create stacked bar chart
+        fig.add_trace(go.Bar(
+            name="Predicted Positive (>50K)",
+            x=curr_dist["model_name"],
+            y=curr_dist["positive"],
+            marker=dict(
+                color=COLORS["success"],
+                line=dict(width=positive_line_width, color=positive_line_color)
+            ),
+            text=[f"{p:,}" for p in curr_dist["positive"]],
+            textposition="inside",
+            textfont={"color": "white", "size": 11},
+            hovertemplate="%{customdata}<extra></extra>",
+            customdata=positive_hovers
+        ))
+        
+        fig.add_trace(go.Bar(
+            name="Predicted Negative (≤50K)",
+            x=curr_dist["model_name"],
+            y=curr_dist["negative"],
+            marker=dict(
+                color=COLORS["text_muted"],
+                line=dict(width=negative_line_width, color=negative_line_color)
+            ),
+            text=[f"{n:,}" for n in curr_dist["negative"]],
+            textposition="inside",
+            textfont={"color": "white", "size": 11},
+            hovertemplate="%{customdata}<extra></extra>",
+            customdata=negative_hovers
+        ))
+        
+        # ═══════════════════════════════════════════════════════════════════════
+        # C) DECISION MODE ANNOTATION
+        # ═══════════════════════════════════════════════════════════════════════
+        
+        # Add mode annotation
+        fig.add_annotation(
+            x=0.5, y=1.08,
+            xref="paper", yref="paper",
+            text=f"<b>{mode_config['annotation']}</b>",
+            showarrow=False,
+            font=dict(size=10, color=COLORS["primary"]),
+            bgcolor="rgba(99, 102, 241, 0.1)",
+            borderpad=6,
+            bordercolor="rgba(99, 102, 241, 0.2)",
+            borderwidth=1
+        )
+        
+        # ═══════════════════════════════════════════════════════════════════════
+        # D) SENSITIVITY ANNOTATION (if large change detected)
+        # ═══════════════════════════════════════════════════════════════════════
+        
+        if any_large_change:
+            # Find which model has the large change
+            large_change_models = [m for m in changes if changes[m]["is_large"]]
+            
+            fig.add_annotation(
+                x=0.5, y=-0.18,
+                xref="paper", yref="paper",
+                text="⚠ Sensitive threshold region: small changes cause large shifts in predictions",
+                showarrow=False,
+                font=dict(size=9, color=COLORS["warning"]),
+                bgcolor="rgba(245, 158, 11, 0.1)",
+                borderpad=4
+            )
+        
+        # Layout for absolute view
+        fig.update_layout(
+            title=dict(
+                text=f"Prediction Distribution (Threshold = {threshold:.2f})",
+                font=dict(size=14)
+            ),
+            barmode="stack",
+            xaxis_title="",
+            yaxis_title="Number of Samples",
+            height=400,
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=-0.25,
+                xanchor="center",
+                x=0.5,
+                font=dict(size=10)
+            ),
+            margin=dict(t=80, b=100),
+            transition=dict(duration=400, easing="cubic-in-out")
+        )
+    
+    return fig
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PARALLEL COORDINATES PLOT - OPERATING POINTS ANALYSIS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+PCP_DECISION_MODE_CONFIG = {
+    "balanced": {
+        "label": "Balanced / Max F1",
+        "optimize": "f1",
+        "constraint": None,
+        "description": "Operating point with highest F1 score"
+    },
+    "precision": {
+        "label": "Precision-focused",
+        "optimize": "precision",
+        "constraint": {"metric": "recall", "min": 0.5},
+        "description": "Highest precision with recall ≥ 50%"
+    },
+    "recall": {
+        "label": "Recall-focused",
+        "optimize": "recall",
+        "constraint": {"metric": "precision", "min": 0.5},
+        "description": "Highest recall with precision ≥ 50%"
+    }
+}
+
+
+def build_operating_points_df(
+    df: pd.DataFrame,
+    models_selected: list = None,
+    thresholds: np.ndarray = None,
+    subgroup_mode: str = "Global",
+    subgroup_attr: str = "sex",
+    subgroup_pairs: dict = None
+) -> pd.DataFrame:
+    """
+    Build a dataframe of operating points for parallel coordinates visualization.
+    
+    Each row represents one operating point: (model, threshold, [subgroup]) with metrics.
+    
+    Args:
+        df: Evaluation DataFrame with columns: model, y_true, y_proba, sex, race
+        models_selected: List of model names to include (None = all)
+        thresholds: Array of thresholds to evaluate (None = default range)
+        subgroup_mode: "Global", "Sex", or "Race"
+        subgroup_attr: Attribute for subgroup analysis ("sex" or "race")
+        subgroup_pairs: Dict mapping attribute to (group_a, group_b) tuple
+        
+    Returns:
+        DataFrame with columns: model, threshold, precision, recall, f1, fpr, fnr,
+                               calibration_error, fairness_gap, tp, fp, tn, fn, subgroup
+    """
+    if thresholds is None:
+        thresholds = np.linspace(0.1, 0.9, 17)
+    
+    if subgroup_pairs is None:
+        subgroup_pairs = {
+            "sex": ("Male", "Female"),
+            "race": ("White", "Non-White")
+        }
+    
+    if models_selected is None:
+        models_selected = df["model"].unique().tolist()
+    
+    operating_points = []
+    
+    for model in models_selected:
+        model_df = df[df["model"] == model]
+        model_name = MODEL_NAMES.get(model, model)
+        
+        y_true_all = model_df["y_true"].values
+        y_proba_all = model_df["y_proba"].values
+        
+        for t in thresholds:
+            if subgroup_mode == "Global":
+                # Compute global metrics
+                y_pred = (y_proba_all >= t).astype(int)
+                cm = confusion_matrix(y_true_all, y_pred)
+                
+                if cm.shape == (2, 2):
+                    tn, fp, fn, tp = cm.ravel()
+                else:
+                    tn, fp, fn, tp = 0, 0, 0, 0
+                
+                # Compute metrics
+                precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+                recall = tp / (tp + fn) if (tp + fn) > 0 else 0
+                f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
+                fpr = fp / (fp + tn) if (fp + tn) > 0 else 0
+                fnr = fn / (fn + tp) if (fn + tp) > 0 else 0
+                
+                # Calibration error: use samples near threshold
+                # Simple approach: mean predicted prob near threshold vs actual positive rate
+                mask_near = (y_proba_all >= t - 0.05) & (y_proba_all <= t + 0.05)
+                if mask_near.sum() > 10:
+                    actual_rate = y_true_all[mask_near].mean()
+                    pred_rate = y_proba_all[mask_near].mean()
+                    calibration_error = abs(actual_rate - pred_rate)
+                else:
+                    # Fallback: global calibration at this threshold
+                    calibration_error = abs(y_true_all.mean() - t)
+                
+                operating_points.append({
+                    "model": model,
+                    "model_name": model_name,
+                    "threshold": t,
+                    "precision": precision,
+                    "recall": recall,
+                    "f1": f1,
+                    "fpr": fpr,
+                    "fnr": fnr,
+                    "calibration_error": calibration_error,
+                    "fairness_gap": 0.0,  # No fairness gap for global
+                    "tp": tp,
+                    "fp": fp,
+                    "tn": tn,
+                    "fn": fn,
+                    "subgroup": "Global",
+                    "metric_group_a": None,
+                    "metric_group_b": None
+                })
+            
+            else:
+                # Subgroup mode: compute per-group metrics and fairness gap
+                attr = subgroup_attr.lower()
+                if attr not in subgroup_pairs:
+                    continue
+                    
+                group_a_name, group_b_name = subgroup_pairs[attr]
+                
+                # Handle "Non-White" special case
+                if group_b_name == "Non-White":
+                    group_a_mask = model_df[attr] == group_a_name
+                    group_b_mask = model_df[attr] != group_a_name
+                else:
+                    group_a_mask = model_df[attr] == group_a_name
+                    group_b_mask = model_df[attr] == group_b_name
+                
+                # Compute metrics for each group
+                group_metrics = {}
+                for group_name, mask in [(group_a_name, group_a_mask), (group_b_name, group_b_mask)]:
+                    if mask.sum() == 0:
+                        continue
+                    
+                    y_true_g = model_df.loc[mask, "y_true"].values
+                    y_proba_g = model_df.loc[mask, "y_proba"].values
+                    y_pred_g = (y_proba_g >= t).astype(int)
+                    
+                    cm_g = confusion_matrix(y_true_g, y_pred_g)
+                    if cm_g.shape == (2, 2):
+                        tn_g, fp_g, fn_g, tp_g = cm_g.ravel()
+                    else:
+                        tn_g, fp_g, fn_g, tp_g = 0, 0, 0, 0
+                    
+                    prec_g = tp_g / (tp_g + fp_g) if (tp_g + fp_g) > 0 else 0
+                    rec_g = tp_g / (tp_g + fn_g) if (tp_g + fn_g) > 0 else 0
+                    f1_g = 2 * prec_g * rec_g / (prec_g + rec_g) if (prec_g + rec_g) > 0 else 0
+                    fpr_g = fp_g / (fp_g + tn_g) if (fp_g + tn_g) > 0 else 0
+                    fnr_g = fn_g / (fn_g + tp_g) if (fn_g + tp_g) > 0 else 0
+                    
+                    group_metrics[group_name] = {
+                        "precision": prec_g,
+                        "recall": rec_g,
+                        "f1": f1_g,
+                        "fpr": fpr_g,
+                        "fnr": fnr_g,
+                        "tp": tp_g, "fp": fp_g, "tn": tn_g, "fn": fn_g
+                    }
+                
+                if len(group_metrics) < 2:
+                    continue
+                
+                # Compute fairness gap (using FNR difference)
+                fnr_a = group_metrics[group_a_name]["fnr"]
+                fnr_b = group_metrics[group_b_name]["fnr"]
+                fairness_gap = abs(fnr_a - fnr_b)
+                
+                # Add operating point for each group
+                for group_name in [group_a_name, group_b_name]:
+                    gm = group_metrics[group_name]
+                    
+                    # Calibration error per group
+                    mask_group = group_a_mask if group_name == group_a_name else group_b_mask
+                    y_true_g = model_df.loc[mask_group, "y_true"].values
+                    y_proba_g = model_df.loc[mask_group, "y_proba"].values
+                    
+                    mask_near = (y_proba_g >= t - 0.05) & (y_proba_g <= t + 0.05)
+                    if mask_near.sum() > 5:
+                        actual_rate = y_true_g[mask_near].mean()
+                        pred_rate = y_proba_g[mask_near].mean()
+                        calibration_error = abs(actual_rate - pred_rate)
+                    else:
+                        calibration_error = abs(y_true_g.mean() - t)
+                    
+                    operating_points.append({
+                        "model": model,
+                        "model_name": model_name,
+                        "threshold": t,
+                        "precision": gm["precision"],
+                        "recall": gm["recall"],
+                        "f1": gm["f1"],
+                        "fpr": gm["fpr"],
+                        "fnr": gm["fnr"],
+                        "calibration_error": calibration_error,
+                        "fairness_gap": fairness_gap,
+                        "tp": gm["tp"],
+                        "fp": gm["fp"],
+                        "tn": gm["tn"],
+                        "fn": gm["fn"],
+                        "subgroup": group_name,
+                        "metric_group_a": fnr_a,
+                        "metric_group_b": fnr_b
+                    })
+    
+    return pd.DataFrame(operating_points)
+
+
+def _find_recommended_operating_point(ops_df: pd.DataFrame, decision_mode: str) -> dict:
+    """
+    Find the recommended operating point based on decision mode.
+    
+    Args:
+        ops_df: Operating points dataframe
+        decision_mode: "balanced", "precision", or "recall"
+        
+    Returns:
+        dict with the recommended row data or None
+    """
+    if len(ops_df) == 0:
+        return None
+    
+    mode_config = PCP_DECISION_MODE_CONFIG.get(decision_mode, PCP_DECISION_MODE_CONFIG["balanced"])
+    optimize_metric = mode_config["optimize"]
+    constraint = mode_config["constraint"]
+    
+    # Apply constraint if exists
+    filtered_df = ops_df.copy()
+    if constraint is not None:
+        mask = filtered_df[constraint["metric"]] >= constraint["min"]
+        if mask.any():
+            filtered_df = filtered_df[mask]
+        # If no rows pass constraint, use full df
+    
+    if len(filtered_df) == 0:
+        filtered_df = ops_df
+    
+    # Find best by optimize metric
+    best_idx = filtered_df[optimize_metric].idxmax()
+    best_row = filtered_df.loc[best_idx].to_dict()
+    best_row["_index"] = best_idx
+    
+    return best_row
+
+
+def create_parallel_coordinates_operating_points(
+    ops_df: pd.DataFrame,
+    current_threshold: float = 0.5,
+    decision_mode: str = "balanced",
+    color_by: str = "model",
+    selected_indices: list = None,
+    highlight_threshold_range: float = 0.05
+) -> go.Figure:
+    """
+    Create a Parallel Coordinates Plot for operating points analysis.
+    
+    Args:
+        ops_df: Operating points dataframe from build_operating_points_df
+        current_threshold: Current global threshold for highlighting
+        decision_mode: "balanced", "precision", or "recall"
+        color_by: "model" or "subgroup"
+        selected_indices: List of indices to highlight (from brushing)
+        highlight_threshold_range: Range around current threshold to highlight
+        
+    Returns:
+        Plotly Figure with parallel coordinates
+    """
+    if len(ops_df) == 0:
+        # Return empty figure with message
+        fig = go.Figure()
+        fig.add_annotation(
+            x=0.5, y=0.5,
+            xref="paper", yref="paper",
+            text="No operating points data available",
+            showarrow=False,
+            font=dict(size=14, color=COLORS["text_muted"])
+        )
+        fig.update_layout(height=400)
+        return fig
+    
+    mode_config = PCP_DECISION_MODE_CONFIG.get(decision_mode, PCP_DECISION_MODE_CONFIG["balanced"])
+    
+    # Find recommended operating point
+    recommended = _find_recommended_operating_point(ops_df, decision_mode)
+    
+    # Create color encoding
+    if color_by == "model":
+        # Map models to numeric values for color scale
+        unique_models = ops_df["model"].unique()
+        model_to_num = {m: i for i, m in enumerate(unique_models)}
+        color_values = ops_df["model"].map(model_to_num).values
+        
+        # Create colorscale
+        if len(unique_models) == 2:
+            colorscale = [
+                [0, MODEL_COLORS.get(unique_models[0], COLORS["primary"])],
+                [1, MODEL_COLORS.get(unique_models[1], COLORS["accent"])]
+            ]
+        else:
+            colorscale = "Viridis"
+        
+        colorbar_title = "Model"
+        colorbar_tickvals = list(range(len(unique_models)))
+        colorbar_ticktext = [MODEL_NAMES.get(m, m) for m in unique_models]
+    else:
+        # Color by subgroup
+        unique_subgroups = ops_df["subgroup"].unique()
+        subgroup_to_num = {s: i for i, s in enumerate(unique_subgroups)}
+        color_values = ops_df["subgroup"].map(subgroup_to_num).values
+        
+        colorscale = [
+            [0, COLORS["primary"]],
+            [0.5, COLORS["secondary"]],
+            [1, COLORS["accent"]]
+        ]
+        colorbar_title = "Subgroup"
+        colorbar_tickvals = list(range(len(unique_subgroups)))
+        colorbar_ticktext = list(unique_subgroups)
+    
+    # Highlight lines near current threshold
+    near_threshold_mask = (
+        (ops_df["threshold"] >= current_threshold - highlight_threshold_range) &
+        (ops_df["threshold"] <= current_threshold + highlight_threshold_range)
+    )
+    
+    # Build dimensions for parallel coordinates
+    dimensions = [
+        dict(
+            label="Threshold",
+            values=ops_df["threshold"],
+            range=[0.1, 0.9],
+            tickvals=[0.1, 0.3, 0.5, 0.7, 0.9],
+            ticktext=["0.1", "0.3", "0.5", "0.7", "0.9"]
+        ),
+        dict(
+            label="Precision",
+            values=ops_df["precision"],
+            range=[0, 1],
+            tickvals=[0, 0.25, 0.5, 0.75, 1],
+            ticktext=["0%", "25%", "50%", "75%", "100%"]
+        ),
+        dict(
+            label="Recall",
+            values=ops_df["recall"],
+            range=[0, 1],
+            tickvals=[0, 0.25, 0.5, 0.75, 1],
+            ticktext=["0%", "25%", "50%", "75%", "100%"]
+        ),
+        dict(
+            label="F1 Score",
+            values=ops_df["f1"],
+            range=[0, 1],
+            tickvals=[0, 0.25, 0.5, 0.75, 1],
+            ticktext=["0%", "25%", "50%", "75%", "100%"]
+        ),
+        dict(
+            label="FPR",
+            values=ops_df["fpr"],
+            range=[0, max(0.5, ops_df["fpr"].max() * 1.1)],
+            tickformat=".0%"
+        ),
+        dict(
+            label="Calib. Error",
+            values=ops_df["calibration_error"],
+            range=[0, max(0.3, ops_df["calibration_error"].max() * 1.1)],
+            tickformat=".1%"
+        ),
+        dict(
+            label="Fairness Gap",
+            values=ops_df["fairness_gap"],
+            range=[0, max(0.3, ops_df["fairness_gap"].max() * 1.1) if ops_df["fairness_gap"].max() > 0 else 0.1],
+            tickformat=".1%"
+        )
+    ]
+    
+    # Create the parallel coordinates trace
+    fig = go.Figure(data=
+        go.Parcoords(
+            line=dict(
+                color=color_values,
+                colorscale=colorscale,
+                showscale=True,
+                colorbar=dict(
+                    title=colorbar_title,
+                    tickvals=colorbar_tickvals,
+                    ticktext=colorbar_ticktext,
+                    len=0.5,
+                    y=0.75
+                )
+            ),
+            dimensions=dimensions,
+            labelangle=-30,
+            labelfont=dict(size=10),
+            tickfont=dict(size=9)
+        )
+    )
+    
+    # Add annotation for recommended operating point
+    if recommended is not None:
+        rec_text = (
+            f"★ Recommended: {recommended['model_name']} @ t={recommended['threshold']:.2f}<br>"
+            f"F1={recommended['f1']:.1%}, Prec={recommended['precision']:.1%}, Rec={recommended['recall']:.1%}"
+        )
+        fig.add_annotation(
+            x=0.5, y=1.12,
+            xref="paper", yref="paper",
+            text=rec_text,
+            showarrow=False,
+            font=dict(size=10, color=COLORS["success"]),
+            bgcolor="rgba(34, 197, 94, 0.1)",
+            borderpad=6,
+            bordercolor="rgba(34, 197, 94, 0.3)",
+            borderwidth=1
+        )
+    
+    # Add decision mode annotation
+    fig.add_annotation(
+        x=0.0, y=-0.15,
+        xref="paper", yref="paper",
+        text=f"Decision Mode: <b>{mode_config['label']}</b> — {mode_config['description']}",
+        showarrow=False,
+        font=dict(size=9, color=COLORS["text_secondary"]),
+        xanchor="left"
+    )
+    
+    # Layout
     fig.update_layout(
-        title=f"Distribuicao de Predicoes (Threshold = {threshold:.2f})",
-        barmode="stack",
-        xaxis_title="",
-        yaxis_title="Numero de Amostras",
-        height=350,
-        transition=dict(duration=500, easing="cubic-in-out")
+        title=dict(
+            text="Parallel Coordinates: Operating Points Analysis",
+            font=dict(size=14),
+            x=0.0,
+            y=0.97,
+            xanchor="left"
+        ),
+        height=450,
+        margin=dict(l=80, r=80, t=100, b=80),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)"
     )
     
     return fig
+
+
+def create_selected_operating_points_table(
+    ops_df: pd.DataFrame,
+    selected_indices: list = None,
+    current_threshold: float = 0.5,
+    decision_mode: str = "balanced",
+    max_rows: int = 5
+) -> pd.DataFrame:
+    """
+    Create a summary table of selected or top operating points.
+    
+    Args:
+        ops_df: Operating points dataframe
+        selected_indices: Indices selected via brushing (None = show top by F1)
+        current_threshold: Current threshold for proximity filtering
+        decision_mode: Decision mode for sorting
+        max_rows: Maximum rows to return
+        
+    Returns:
+        DataFrame formatted for display
+    """
+    if len(ops_df) == 0:
+        return pd.DataFrame()
+    
+    mode_config = PCP_DECISION_MODE_CONFIG.get(decision_mode, PCP_DECISION_MODE_CONFIG["balanced"])
+    optimize_metric = mode_config["optimize"]
+    
+    if selected_indices is not None and len(selected_indices) > 0:
+        # Filter to selected indices
+        display_df = ops_df.loc[ops_df.index.isin(selected_indices)].copy()
+    else:
+        # Show operating points near current threshold, sorted by optimize metric
+        near_threshold = ops_df[
+            (ops_df["threshold"] >= current_threshold - 0.1) &
+            (ops_df["threshold"] <= current_threshold + 0.1)
+        ].copy()
+        
+        if len(near_threshold) > 0:
+            display_df = near_threshold.nlargest(max_rows, optimize_metric)
+        else:
+            display_df = ops_df.nlargest(max_rows, optimize_metric)
+    
+    # Format for display
+    display_df = display_df.head(max_rows)
+    
+    result = display_df[[
+        "model_name", "threshold", "precision", "recall", "f1", 
+        "fpr", "calibration_error", "fairness_gap"
+    ]].copy()
+    
+    result.columns = [
+        "Model", "Threshold", "Precision", "Recall", "F1",
+        "FPR", "Calib. Error", "Fairness Gap"
+    ]
+    
+    # Format percentages
+    for col in ["Precision", "Recall", "F1", "FPR", "Calib. Error", "Fairness Gap"]:
+        result[col] = result[col].apply(lambda x: f"{x:.1%}")
+    
+    result["Threshold"] = result["Threshold"].apply(lambda x: f"{x:.2f}")
+    
+    return result.reset_index(drop=True)
+
+
+def get_operating_point_details(ops_df: pd.DataFrame, index: int) -> dict:
+    """
+    Get detailed information for a specific operating point.
+    
+    Args:
+        ops_df: Operating points dataframe
+        index: Row index
+        
+    Returns:
+        dict with all details formatted for tooltip/panel display
+    """
+    if index not in ops_df.index:
+        return None
+    
+    row = ops_df.loc[index]
+    
+    details = {
+        "Model": row["model_name"],
+        "Threshold": f"{row['threshold']:.3f}",
+        "Subgroup": row["subgroup"],
+        "Precision": f"{row['precision']:.2%}",
+        "Recall": f"{row['recall']:.2%}",
+        "F1 Score": f"{row['f1']:.2%}",
+        "FPR": f"{row['fpr']:.2%}",
+        "FNR": f"{row['fnr']:.2%}",
+        "Calibration Error": f"{row['calibration_error']:.2%}",
+        "Fairness Gap (ΔFNR)": f"{row['fairness_gap']:.2%}",
+        "TP": f"{row['tp']:,}",
+        "FP": f"{row['fp']:,}",
+        "TN": f"{row['tn']:,}",
+        "FN": f"{row['fn']:,}"
+    }
+    
+    return details

@@ -18,26 +18,27 @@ from src.models.training import global_metrics, recompute_with_threshold
 # ═══════════════════════════════════════════════════════════════════════════════
 
 METRIC_EXPLANATIONS = {
-    "accuracy": "Accuracy mede a percentagem de predições corretas. Pode ser enganosa em datasets desbalanceados.",
-    "precision": "Precision alta significa menos falsos positivos. Importante quando o custo de FP é alto.",
-    "recall": "Recall alto significa menos falsos negativos. Importante quando não podemos perder casos positivos.",
-    "f1": "F1-Score é a média harmónica entre Precision e Recall. Equilibra ambas as métricas."
+    "accuracy": "Accuracy shows how often the model predicts correctly. It can be misleading on imbalanced datasets.",
+    "precision": "Precision shows how many predicted positives are actually correct. Higher precision means fewer false positives.",
+    "recall": "Recall shows how many actual positives were found. Higher recall means fewer false negatives.",
+    "f1": "F1-Score combines Precision and Recall into a single score, balancing both."
 }
 
 DECISION_MODE_CONFIG = {
     "balanced": {
         "highlight": ["accuracy", "f1"],
-        "description": "Visão equilibrada de todas as métricas"
+        "description": "Balanced view across all metrics"
     },
     "precision": {
         "highlight": ["precision", "accuracy"],
-        "description": "Foco em minimizar falsos positivos"
+        "description": "Focus on reducing false positives"
     },
     "recall": {
         "highlight": ["recall", "f1"],
-        "description": "Foco em minimizar falsos negativos"
+        "description": "Focus on reducing false negatives"
     }
 }
+
 
 
 def compute_subgroup_metrics(df: pd.DataFrame, subgroup: str = "global") -> pd.DataFrame:
@@ -243,13 +244,13 @@ def create_metrics_comparison_chart(
     if subgroup != "global":
         title_suffix = f" ({subgroup})"
     if display_mode == "relative":
-        title_suffix += " - Diferença Relativa"
+        title_suffix += " - Relative Difference"
     
     mode_label = DECISION_MODE_CONFIG.get(decision_mode, {}).get("description", "")
     
     fig.update_layout(
         title=dict(
-            text=f"Comparação de Métricas por Modelo{title_suffix}",
+            text=f"Metric Comparison by Model{title_suffix}",
             font=dict(size=16)
         ),
         barmode="group",

@@ -99,7 +99,7 @@ CACHE_CONFIG = {
 
 APP_CONFIG = {
     "title": "Model Evaluation Dashboard",
-    "subtitle": "Análise comparativa de modelos de classificação — Indo além da accuracy global",
+    "subtitle": "A Comparative Study of Classification Models Beyond Overall Accuracy",
     "host": "127.0.0.1",
     "port": 8050,
     "debug": True

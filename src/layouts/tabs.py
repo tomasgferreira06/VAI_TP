@@ -386,6 +386,149 @@ def create_threshold_analysis_controls() -> html.Div:
     })
 
 
+def create_fp_fn_controls() -> html.Div:
+    """Cria os controlos para o gráfico Errors vs Threshold."""
+    return html.Div([
+        dbc.Row([
+            # Toggle: Counts vs Rates
+            dbc.Col([
+                html.Label("Display Mode", style={
+                    "fontSize": "0.7rem",
+                    "color": COLORS["text_muted"],
+                    "textTransform": "uppercase",
+                    "letterSpacing": "0.05em",
+                    "marginBottom": "0.25rem",
+                    "display": "block"
+                }),
+                dbc.RadioItems(
+                    options=[
+                        {"label": " Counts (FP, FN)", "value": "counts"},
+                        {"label": " Rates (FPR, FNR)", "value": "rates"},
+                    ],
+                    value="counts",
+                    id="fp-fn-display-toggle",
+                    inline=True,
+                    style={"fontSize": "0.8rem"}
+                )
+            ], width="auto"),
+            
+            # Info icon with tooltip
+            dbc.Col([
+                html.Div([
+                    html.I(
+                        className="bi bi-info-circle",
+                        id="fp-fn-info-icon",
+                        style={
+                            "fontSize": "1rem",
+                            "color": COLORS["primary_light"],
+                            "cursor": "pointer",
+                            "marginTop": "1.5rem"
+                        }
+                    ),
+                    dbc.Tooltip(
+                        "This plot shows how False Positives and False Negatives evolve with threshold changes. "
+                        "Switch between absolute counts and normalized rates. "
+                        "The optimal point changes based on the global Decision Mode.",
+                        target="fp-fn-info-icon",
+                        placement="right"
+                    )
+                ])
+            ], width="auto"),
+        ], className="g-3 align-items-end", justify="start"),
+        
+    ], style={
+        "background": f"{COLORS['bg_hover']}44",
+        "borderRadius": "8px",
+        "padding": "0.75rem 1rem",
+        "marginBottom": "0.75rem"
+    })
+
+
+
+def create_pcp_controls() -> html.Div:
+    """Cria os controlos para o Parallel Coordinates Plot."""
+    return html.Div([
+        dbc.Row([
+            # Subgroup Mode
+            dbc.Col([
+                html.Label("Subgroup Analysis", style={
+                    "fontSize": "0.7rem",
+                    "color": COLORS["text_muted"],
+                    "textTransform": "uppercase",
+                    "letterSpacing": "0.05em",
+                    "marginBottom": "0.25rem",
+                    "display": "block"
+                }),
+                dcc.Dropdown(
+                    id="pcp-subgroup-mode",
+                    options=[
+                        {"label": "Global", "value": "Global"},
+                        {"label": "By Sex", "value": "Sex"},
+                        {"label": "By Race", "value": "Race"},
+                    ],
+                    value="Global",
+                    clearable=False,
+                    style={"minWidth": "110px", "fontSize": "0.85rem"}
+                )
+            ], width="auto"),
+            
+            # Color By
+            dbc.Col([
+                html.Label("Color By", style={
+                    "fontSize": "0.7rem",
+                    "color": COLORS["text_muted"],
+                    "textTransform": "uppercase",
+                    "letterSpacing": "0.05em",
+                    "marginBottom": "0.25rem",
+                    "display": "block"
+                }),
+                dbc.RadioItems(
+                    options=[
+                        {"label": " Model", "value": "model"},
+                        {"label": " Subgroup", "value": "subgroup"},
+                    ],
+                    value="model",
+                    id="pcp-color-by",
+                    inline=True,
+                    style={"fontSize": "0.8rem"}
+                )
+            ], width="auto"),
+            
+            # Info icon with tooltip
+            dbc.Col([
+                html.Div([
+                    html.I(
+                        className="bi bi-info-circle",
+                        id="pcp-info-icon",
+                        style={
+                            "fontSize": "1rem",
+                            "color": COLORS["primary_light"],
+                            "cursor": "pointer",
+                            "marginTop": "1.5rem"
+                        }
+                    ),
+                    dbc.Tooltip(
+                        "Each polyline represents an operating point (model + threshold + subgroup). "
+                        "Brush axes to filter operating points. The recommended point is highlighted "
+                        "based on the global Decision Mode. Fairness Gap shows disparity between groups.",
+                        target="pcp-info-icon",
+                        placement="right"
+                    )
+                ])
+            ], width="auto"),
+        ], className="g-3 align-items-end", justify="start"),
+        
+        # Store for selected operating points from brushing
+        dcc.Store(id="pcp-selected-ops-store", data=[]),
+        
+    ], style={
+        "background": f"{COLORS['bg_hover']}44",
+        "borderRadius": "8px",
+        "padding": "0.75rem 1rem",
+        "marginBottom": "0.75rem"
+    })
+
+
 def create_tab_tradeoffs() -> html.Div:
     """Tab de análise de trade-offs (precision vs recall)."""
     return html.Div([
@@ -445,16 +588,97 @@ def create_tab_tradeoffs() -> html.Div:
         dbc.Row([
             dbc.Col([
                 html.Div([
+                    # FP/FN Controls
+                    create_fp_fn_controls(),
+                    # FP/FN Chart
                     dcc.Graph(id="fp-fn-evolution-chart", config={"displayModeBar": False})
                 ], className="dashboard-card")
             ], lg=12)
         ], style={"marginBottom": "1.5rem"}),
-        
-        # Row 3: Threshold Impact
+                
+        # Row 4: Parallel Coordinates Operating Points (Advanced Visualization)
         dbc.Row([
             dbc.Col([
                 html.Div([
-                    dcc.Graph(id="threshold-impact-chart", config={"displayModeBar": False})
+                    # Section Header
+                    html.Div([
+                        html.Div([
+                            html.I(className="bi bi-diagram-3", style={
+                                "fontSize": "1.1rem", 
+                                "marginRight": "0.75rem", 
+                                "color": COLORS["secondary"]
+                            }),
+                            html.Span("Operating Points Analysis", style={
+                                "fontWeight": "600",
+                                "color": COLORS["text_primary"],
+                                "fontSize": "1rem"
+                            })
+                        ], style={"display": "flex", "alignItems": "center"}),
+                        html.Span(
+                            "Multi-criteria comparison across models, thresholds, and subgroups. "
+                            "Brush axes to filter and highlight operating points.",
+                            style={
+                                "color": COLORS["text_secondary"],
+                                "fontSize": "0.8rem",
+                                "marginTop": "0.25rem",
+                                "display": "block"
+                            }
+                        )
+                    ], style={"marginBottom": "1rem"}),
+                    
+                    # PCP Controls
+                    create_pcp_controls(),
+                    
+                    # Parallel Coordinates Chart
+                    dcc.Graph(
+                        id="pcp-operating-points-chart", 
+                        config={"displayModeBar": True, "modeBarButtonsToRemove": ["lasso2d", "select2d"]}
+                    ),
+                    
+                    # Caption
+                    html.Div(
+                        "Each polyline is an operating point (model + threshold + subgroup). "
+                        "Brush axes to filter operating points and see linked updates in other views.",
+                        style={
+                            "fontSize": "0.75rem",
+                            "color": COLORS["text_muted"],
+                            "fontStyle": "italic",
+                            "textAlign": "center",
+                            "marginTop": "0.5rem"
+                        }
+                    ),
+                    
+                    # Divider
+                    html.Hr(style={
+                        "borderColor": f"{COLORS['border']}33",
+                        "margin": "1.25rem 0"
+                    }),
+                    
+                    # Selected Operating Points Table Header
+                    html.Div([
+                        html.Div([
+                            html.I(className="bi bi-table", style={
+                                "fontSize": "0.9rem", 
+                                "marginRight": "0.5rem", 
+                                "color": COLORS["primary_light"]
+                            }),
+                            html.Span("Selected Operating Points", style={
+                                "fontWeight": "500",
+                                "color": COLORS["text_primary"],
+                                "fontSize": "0.875rem"
+                            }),
+                            html.Span(
+                                " — Top points near current threshold",
+                                style={
+                                    "color": COLORS["text_muted"],
+                                    "fontSize": "0.75rem"
+                                }
+                            )
+                        ], style={"display": "flex", "alignItems": "center"})
+                    ], style={"marginBottom": "0.75rem"}),
+                    
+                    # Table container
+                    html.Div(id="pcp-selected-table-container", className="dark-table-container")
                 ], className="dashboard-card")
             ], lg=12)
         ])
@@ -464,42 +688,285 @@ def create_tab_tradeoffs() -> html.Div:
 def create_tab_errors() -> html.Div:
     """Tab de análise de erros."""
     return html.Div([
+        # Confusion Matrix Section with Controls
         dbc.Row([
-            # Confusion Matrix
             dbc.Col([
                 html.Div([
-                    dcc.Graph(id="confusion-matrix-chart", config={"displayModeBar": False})
+                    # Section Header
+                    html.Div([
+                        html.Div([
+                            html.I(className="bi bi-grid-3x3", style={
+                                "fontSize": "1.1rem", 
+                                "marginRight": "0.75rem", 
+                                "color": COLORS["primary_light"]
+                            }),
+                            html.Span("Interactive Confusion Matrix", style={
+                                "fontWeight": "600",
+                                "color": COLORS["text_primary"],
+                                "fontSize": "1rem"
+                            })
+                        ], style={"display": "flex", "alignItems": "center"}),
+                        html.Span(
+                            "Explore error patterns across thresholds and models. "
+                            "Hover cells for rich diagnostics.",
+                            style={
+                                "color": COLORS["text_secondary"],
+                                "fontSize": "0.8rem",
+                                "marginTop": "0.25rem",
+                                "display": "block"
+                            }
+                        )
+                    ], style={"marginBottom": "1rem"}),
+                    
+                    # Controls Row
+                    html.Div([
+                        dbc.Row([
+                            # Normalization Mode
+                            dbc.Col([
+                                html.Label("Display Mode", style={
+                                    "fontSize": "0.7rem",
+                                    "color": COLORS["text_muted"],
+                                    "textTransform": "uppercase",
+                                    "letterSpacing": "0.05em",
+                                    "marginBottom": "0.25rem",
+                                    "display": "block"
+                                }),
+                                dbc.ButtonGroup([
+                                    dbc.Button("Counts", id="btn-cm-counts", color="primary", outline=False, size="sm"),
+                                    dbc.Button("% Total", id="btn-cm-pct-total", color="primary", outline=True, size="sm"),
+                                    dbc.Button("% Row", id="btn-cm-pct-row", color="primary", outline=True, size="sm"),
+                                    dbc.Button("% Col", id="btn-cm-pct-col", color="primary", outline=True, size="sm"),
+                                ], size="sm")
+                            ], width="auto"),
+                            
+                            # Comparison Mode
+                            dbc.Col([
+                                html.Label("View Mode", style={
+                                    "fontSize": "0.7rem",
+                                    "color": COLORS["text_muted"],
+                                    "textTransform": "uppercase",
+                                    "letterSpacing": "0.05em",
+                                    "marginBottom": "0.25rem",
+                                    "display": "block"
+                                }),
+                                dbc.ButtonGroup([
+                                    dbc.Button("Single", id="btn-cm-single", color="primary", outline=False, size="sm"),
+                                    dbc.Button("Compare", id="btn-cm-compare", color="primary", outline=True, size="sm"),
+                                    dbc.Button("Delta", id="btn-cm-delta", color="primary", outline=True, size="sm"),
+                                ], size="sm")
+                            ], width="auto"),
+                            
+                            # Info Tooltip
+                            dbc.Col([
+                                html.Div([
+                                    html.I(
+                                        className="bi bi-info-circle",
+                                        id="cm-info-icon",
+                                        style={
+                                            "fontSize": "1rem",
+                                            "color": COLORS["primary_light"],
+                                            "cursor": "pointer",
+                                            "marginTop": "1.5rem"
+                                        }
+                                    ),
+                                    dbc.Tooltip(
+                                        [
+                                            html.B("Display Modes:"), html.Br(),
+                                            "• Counts: Raw TP/TN/FP/FN", html.Br(),
+                                            "• % Total: Cell as % of dataset", html.Br(),
+                                            "• % Row: TPR/FPR/TNR/FNR rates", html.Br(),
+                                            "• % Col: Precision/NPV rates", html.Br(), html.Br(),
+                                            html.B("View Modes:"), html.Br(),
+                                            "• Single: Selected model only", html.Br(),
+                                            "• Compare: Side-by-side LR vs RF", html.Br(),
+                                            "• Delta: Difference (RF − LR)"
+                                        ],
+                                        target="cm-info-icon",
+                                        placement="right",
+                                        style={"fontSize": "0.8rem"}
+                                    )
+                                ])
+                            ], width="auto"),
+                        ], className="g-3 align-items-end", justify="start"),
+                        
+                        # Stores for confusion matrix state
+                        dcc.Store(id="cm-norm-mode-store", data="counts"),
+                        dcc.Store(id="cm-comparison-mode-store", data="single"),
+                        
+                    ], style={
+                        "background": f"{COLORS['bg_hover']}44",
+                        "borderRadius": "8px",
+                        "padding": "0.75rem 1rem",
+                        "marginBottom": "1rem"
+                    }),
+                    
+                    # Confusion Matrix Chart
+                    dcc.Graph(id="confusion-matrix-chart", config={"displayModeBar": False}),
+                    
+                    # Mode description caption
+                    html.Div(
+                        id="cm-mode-caption",
+                        children="Hover over any cell to see detailed diagnostics including all normalization views.",
+                        style={
+                            "fontSize": "0.75rem",
+                            "color": COLORS["text_muted"],
+                            "fontStyle": "italic",
+                            "textAlign": "center",
+                            "marginTop": "0.5rem"
+                        }
+                    )
                 ], className="dashboard-card")
-            ], lg=5),
-            
-            # Error Rates Comparison
-            dbc.Col([
-                html.Div([
-                    dcc.Graph(id="error-rates-chart", config={"displayModeBar": False})
-                ], className="dashboard-card")
-            ], lg=7)
+            ], lg=12)
         ], style={"marginBottom": "1.5rem"}),
         
-        # Error by Feature
+        # Error Trade-off Scatter
         dbc.Row([
             dbc.Col([
                 html.Div([
                     create_section_header(
-                        "Distribuição de Erros por Atributo",
-                        "Identifica onde o modelo comete mais erros"
+                        "Error Trade-off Trajectories",
+                        "FPR vs FNR as threshold changes — dynamic behavior as static trajectories"
                     ),
-                    dbc.Row([
-                        dbc.Col([
-                            dcc.Graph(id="error-by-sex-chart", config={"displayModeBar": False})
-                        ], md=6),
-                        dbc.Col([
-                            dcc.Graph(id="error-by-race-chart", config={"displayModeBar": False})
-                        ], md=6)
-                    ])
+                    
+                    # Controls for error tradeoff scatter
+                    html.Div([
+                        dbc.Row([
+                            # Subgroup selector
+                            dbc.Col([
+                                html.Label("Subgroup", style={
+                                    "fontSize": "0.7rem",
+                                    "color": COLORS["text_muted"],
+                                    "textTransform": "uppercase",
+                                    "letterSpacing": "0.05em",
+                                    "marginBottom": "0.25rem",
+                                    "display": "block"
+                                }),
+                                dcc.Dropdown(
+                                    id="error-tradeoff-subgroup",
+                                    options=[
+                                        {"label": "Global", "value": "global"},
+                                        {"label": "Male", "value": "Male"},
+                                        {"label": "Female", "value": "Female"},
+                                        {"label": "White", "value": "White"},
+                                        {"label": "Non-White", "value": "Non-White"},
+                                    ],
+                                    value="global",
+                                    clearable=False,
+                                    style={"minWidth": "130px", "fontSize": "0.85rem"}
+                                )
+                            ], width="auto"),
+                        ], className="g-3 align-items-end", justify="start"),
+                    ], style={
+                        "background": f"{COLORS['bg_hover']}44",
+                        "borderRadius": "8px",
+                        "padding": "0.75rem 1rem",
+                        "marginBottom": "1rem"
+                    }),
+                    
+                    # Error tradeoff scatter chart
+                    dcc.Graph(id="error-tradeoff-chart", config={"displayModeBar": False}),
+                    
+                    # Caption explaining the visualization
+                    html.Div(
+                        "Each curve shows how a model moves in error space (FPR vs FNR) as the decision threshold changes. "
+                        "The highlighted point corresponds to the current threshold. Lowering the threshold moves toward "
+                        "lower FNR but higher FPR.",
+                        style={
+                            "fontSize": "0.75rem",
+                            "color": COLORS["text_muted"],
+                            "fontStyle": "italic",
+                            "textAlign": "center",
+                            "marginTop": "0.5rem",
+                            "maxWidth": "700px",
+                            "margin": "0.5rem auto 0"
+                        }
+                    )
                 ], className="dashboard-card")
             ], lg=12)
-        ])
+        ], style={"marginBottom": "1.5rem"}),
     ])
+
+
+def create_horizon_controls() -> html.Div:
+    """Controls for the Horizon Graph fairness visualization."""
+    return html.Div([
+        dbc.Row([
+            # Metric selector
+            dbc.Col([
+                html.Label("Fairness Metric", style={
+                    "fontSize": "0.7rem",
+                    "color": COLORS["text_muted"],
+                    "textTransform": "uppercase",
+                    "letterSpacing": "0.05em",
+                    "marginBottom": "0.25rem",
+                    "display": "block"
+                }),
+                dcc.Dropdown(
+                    id="horizon-metric-selector",
+                    options=[
+                        {"label": "False Negative Rate (FNR)", "value": "FNR"},
+                        {"label": "False Positive Rate (FPR)", "value": "FPR"},
+                        {"label": "Recall (TPR)", "value": "Recall"},
+                    ],
+                    value="FNR",
+                    clearable=False,
+                    style={"minWidth": "210px", "fontSize": "0.85rem"}
+                )
+            ], width="auto"),
+
+            # Model focus (LR / RF / Both)
+            dbc.Col([
+                html.Label("Model Focus", style={
+                    "fontSize": "0.7rem",
+                    "color": COLORS["text_muted"],
+                    "textTransform": "uppercase",
+                    "letterSpacing": "0.05em",
+                    "marginBottom": "0.25rem",
+                    "display": "block"
+                }),
+                dbc.RadioItems(
+                    options=[
+                        {"label": " LR", "value": "logreg"},
+                        {"label": " RF", "value": "rf"},
+                        {"label": " Both", "value": "both"},
+                    ],
+                    value="both",
+                    id="horizon-model-focus",
+                    inline=True,
+                    style={"fontSize": "0.85rem"}
+                )
+            ], width="auto"),
+
+            # Info icon
+            dbc.Col([
+                html.Div([
+                    html.I(
+                        className="bi bi-info-circle",
+                        id="horizon-info-icon",
+                        style={
+                            "fontSize": "1rem",
+                            "color": COLORS["primary_light"],
+                            "cursor": "pointer",
+                            "marginTop": "1.5rem"
+                        }
+                    ),
+                    dbc.Tooltip(
+                        "Horizon Graph: a compact visualization where the value range is split "
+                        "into bands of increasing colour intensity. Darker bands indicate higher "
+                        "error rates. The bottom row shows the absolute gap between groups — "
+                        "a quick way to spot fairness issues across all thresholds.",
+                        target="horizon-info-icon",
+                        placement="right"
+                    )
+                ])
+            ], width="auto"),
+        ], className="g-3 align-items-end", justify="start"),
+    ], style={
+        "background": f"{COLORS['bg_hover']}44",
+        "borderRadius": "8px",
+        "padding": "0.75rem 1rem",
+        "marginBottom": "0.75rem"
+    })
 
 
 def create_tab_fairness() -> html.Div:
@@ -531,6 +998,72 @@ def create_tab_fairness() -> html.Div:
             "marginBottom": "1.5rem"
         }),
         
+        # ═══════════════════════════════════════════════════════════════════════
+        # HORIZON GRAPH — Advanced Fairness Visualization
+        # ═══════════════════════════════════════════════════════════════════════
+        dbc.Row([
+            dbc.Col([
+                html.Div([
+                    # Section header
+                    html.Div([
+                        html.I(className="bi bi-graph-up", style={
+                            "fontSize": "1.1rem", "marginRight": "0.5rem",
+                            "color": COLORS["primary_light"]
+                        }),
+                        html.Span("Horizon Graph — Fairness Across Thresholds", style={
+                            "fontWeight": "600",
+                            "color": COLORS["text_primary"],
+                            "fontSize": "0.95rem"
+                        }),
+                    ], style={"marginBottom": "0.75rem"}),
+
+                    # Controls
+                    create_horizon_controls(),
+
+                    # Chart
+                    dcc.Graph(
+                        id="horizon-fairness-chart",
+                        config={"displayModeBar": False}
+                    ),
+
+                    # Dynamic band legend
+                    html.Div(id="horizon-band-legend", style={"marginTop": "0.25rem"}),
+
+                    # Explanatory text
+                    html.Div([
+                        html.P(
+                            "This Horizon Graph shows how error rates for different "
+                            "demographic groups evolve as the decision threshold changes. "
+                            "Darker / more intense bands indicate higher error. "
+                            "The bottom row displays the absolute disparity (gap) between "
+                            "groups — regions above the 5 % line signal potential bias.",
+                            style={
+                                "fontSize": "0.8rem",
+                                "color": COLORS["text_secondary"],
+                                "marginBottom": "0.35rem",
+                                "lineHeight": "1.5"
+                            }
+                        ),
+                        html.P(
+                            "💡 Groups with consistently darker bands at the same "
+                            "thresholds are systematically disadvantaged.",
+                            style={
+                                "fontSize": "0.78rem",
+                                "color": COLORS["text_muted"],
+                                "fontStyle": "italic",
+                                "marginBottom": "0"
+                            }
+                        ),
+                    ], style={
+                        "background": f"{COLORS['bg_hover']}44",
+                        "borderRadius": "6px",
+                        "padding": "0.75rem 1rem",
+                        "marginTop": "0.5rem"
+                    })
+                ], className="dashboard-card")
+            ], lg=12)
+        ], style={"marginBottom": "1.5rem"}),
+
         # Main Fairness Charts
         dbc.Row([
             dbc.Col([
