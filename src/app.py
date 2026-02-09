@@ -14,8 +14,7 @@ from src.layouts.tabs import (
     create_tab_global,
     create_tab_tradeoffs,
     create_tab_errors,
-    create_tab_fairness,
-    create_tab_advanced
+    create_tab_fairness
 )
 
 
@@ -164,13 +163,6 @@ def create_app(test_samples: int, positive_rate: float) -> Dash:
                             create_tab_fairness(),
                             label="Fairness",
                             tab_id="tab-fairness",
-                            label_style={"fontWeight": "500", "color": COLORS["text_secondary"]},
-                            active_label_style={"color": COLORS["bg_dark"], "fontWeight": "600"}
-                        ),
-                        dbc.Tab(
-                            create_tab_advanced(),
-                            label="Advanced",
-                            tab_id="tab-advanced",
                             label_style={"fontWeight": "500", "color": COLORS["text_secondary"]},
                             active_label_style={"color": COLORS["bg_dark"], "fontWeight": "600"}
                         ),

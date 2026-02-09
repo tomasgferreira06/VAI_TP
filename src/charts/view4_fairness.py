@@ -9,6 +9,7 @@ from sklearn.metrics import accuracy_score, confusion_matrix
 
 from src.config.settings import COLORS, MODEL_COLORS, MODEL_NAMES
 from src.models.training import recompute_with_threshold
+from src.utils.helpers import hex_to_rgba
 
 
 def create_fairness_accuracy_chart(df: pd.DataFrame, sensitive_col: str, threshold: float = 0.5) -> go.Figure:
@@ -275,6 +276,180 @@ def compute_fairness_metrics_grid(
                     "FN": int(fn),
                 })
     return pd.DataFrame(rows)
+
+
+def create_fairness_sunburst(
+    df: pd.DataFrame,
+    sensitive_col: str,
+    threshold: float = 0.5,
+    model_focus: str = "both"
+) -> go.Figure:
+    """
+    Sunburst Chart for hierarchical error analysis by demographic groups.
+    
+    Args:
+        df: DataFrame de avaliação
+        sensitive_col: Sensitive attribute column ("sex" or "race")
+        threshold: Decision threshold
+        model_focus: "logreg", "rf", or "both"
+        
+    Returns:
+        Figura Plotly
+    """
+    color_map = {
+        "Correct": COLORS["success"],
+        "False Positive": COLORS["error"],
+        "False Negative": COLORS["warning"]
+    }
+    
+    def build_sunburst_data(model_df, sensitive_col):
+        """Helper function to build sunburst data for a single model."""
+        # Apply threshold
+        model_df = model_df.copy()
+        model_df["y_pred"] = (model_df["y_proba"] >= threshold).astype(int)
+        
+        # Create error type classification
+        model_df["error_type"] = "Correct"
+        model_df.loc[(model_df["y_true"] == 1) & (model_df["y_pred"] == 0), "error_type"] = "False Negative"
+        model_df.loc[(model_df["y_true"] == 0) & (model_df["y_pred"] == 1), "error_type"] = "False Positive"
+        
+        # Handle race grouping (White / Non-White)
+        if sensitive_col == "race":
+            model_df["_group"] = model_df["race"].apply(
+                lambda x: "White" if x == "White" else "Non-White"
+            )
+        else:
+            model_df["_group"] = model_df[sensitive_col]
+        
+        # Group by error type and demographic group
+        sunburst_data = model_df.groupby(["error_type", "_group"]).size().reset_index(name="count")
+        
+        # Prepare sunburst data structure
+        labels = ["All Predictions"]
+        parents = [""]
+        values = [len(model_df)]
+        colors = [COLORS["primary"]]
+        
+        # Add error type level
+        for error_type in ["Correct", "False Positive", "False Negative"]:
+            type_data = sunburst_data[sunburst_data["error_type"] == error_type]
+            type_total = type_data["count"].sum()
+            
+            if type_total > 0:
+                labels.append(error_type)
+                parents.append("All Predictions")
+                values.append(type_total)
+                colors.append(color_map.get(error_type, COLORS["primary"]))
+                
+                # Add demographic group level
+                for _, row in type_data.iterrows():
+                    labels.append(f"{row['_group']}")
+                    parents.append(error_type)
+                    values.append(row["count"])
+                    colors.append(hex_to_rgba(color_map.get(error_type, COLORS["primary"]), 0.7))
+        
+        return labels, parents, values, colors
+    
+    # Case 1: Both models - create side by side subplots
+    if model_focus == "both":
+        fig = make_subplots(
+            rows=1, cols=2,
+            specs=[[{"type": "domain"}, {"type": "domain"}]],
+            subplot_titles=[MODEL_NAMES["logreg"], MODEL_NAMES["rf"]],
+            horizontal_spacing=0.05
+        )
+        
+        # Logistic Regression
+        lr_df = df[df["model"] == "logreg"]
+        lr_labels, lr_parents, lr_values, lr_colors = build_sunburst_data(lr_df, sensitive_col)
+        
+        fig.add_trace(go.Sunburst(
+            labels=lr_labels,
+            parents=lr_parents,
+            values=lr_values,
+            branchvalues="total",
+            marker=dict(
+                colors=lr_colors,
+                line=dict(color=COLORS["bg_card"], width=2)
+            ),
+            hovertemplate="<b>%{label}</b><br>Count: %{value}<br>Percentage: %{percentParent:.1%}<extra></extra>",
+            textfont=dict(size=10),
+            insidetextorientation="radial",
+            domain=dict(column=0)
+        ), row=1, col=1)
+        
+        # Random Forest
+        rf_df = df[df["model"] == "rf"]
+        rf_labels, rf_parents, rf_values, rf_colors = build_sunburst_data(rf_df, sensitive_col)
+        
+        fig.add_trace(go.Sunburst(
+            labels=rf_labels,
+            parents=rf_parents,
+            values=rf_values,
+            branchvalues="total",
+            marker=dict(
+                colors=rf_colors,
+                line=dict(color=COLORS["bg_card"], width=2)
+            ),
+            hovertemplate="<b>%{label}</b><br>Count: %{value}<br>Percentage: %{percentParent:.1%}<extra></extra>",
+            textfont=dict(size=10),
+            insidetextorientation="radial",
+            domain=dict(column=1)
+        ), row=1, col=2)
+        
+        fig.update_layout(
+            title=dict(
+                text=f"Hierarchical Error Distribution — Model Comparison<br>"
+                     f"<span style='font-size:12px;color:{COLORS['text_secondary']}'>"
+                     f"By {sensitive_col.title()} — Threshold: {threshold:.2f}</span>",
+                font=dict(size=15)
+            ),
+            height=550,
+            paper_bgcolor="rgba(0,0,0,0)",
+            margin=dict(t=90, l=20, r=20, b=20),
+            transition=dict(duration=500, easing="cubic-in-out")
+        )
+        
+        # Style subplot titles
+        for annotation in fig.layout.annotations:
+            annotation.font.size = 13
+            annotation.font.color = COLORS["text_primary"]
+    
+    # Case 2: Single model
+    else:
+        model_df = df[df["model"] == model_focus]
+        model_label = MODEL_NAMES.get(model_focus, model_focus)
+        
+        labels, parents, values, colors = build_sunburst_data(model_df, sensitive_col)
+        
+        fig = go.Figure(go.Sunburst(
+            labels=labels,
+            parents=parents,
+            values=values,
+            branchvalues="total",
+            marker=dict(
+                colors=colors,
+                line=dict(color=COLORS["bg_card"], width=2)
+            ),
+            hovertemplate="<b>%{label}</b><br>Count: %{value}<br>Percentage: %{percentParent:.1%}<extra></extra>",
+            textfont=dict(size=11),
+            insidetextorientation="radial"
+        ))
+        
+        fig.update_layout(
+            title=dict(
+                text=f"Hierarchical Error Distribution — {model_label}<br>"
+                     f"<span style='font-size:12px;color:{COLORS['text_secondary']}'>"
+                     f"By {sensitive_col.title()} — Threshold: {threshold:.2f}</span>",
+                font=dict(size=15)
+            ),
+            height=500,
+            paper_bgcolor="rgba(0,0,0,0)",
+            margin=dict(t=80, l=20, r=20, b=20),
+            transition=dict(duration=500, easing="cubic-in-out")
+        )
+    
+    return fig
 
 
 def create_fairness_horizon_chart(

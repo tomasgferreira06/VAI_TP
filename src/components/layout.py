@@ -98,9 +98,10 @@ def create_controls_sidebar(test_samples: int, positive_rate: float):
                     id="model-selector",
                     options=[
                         {"label": "Logistic Regression", "value": "logreg"},
-                        {"label": "Random Forest", "value": "rf"}
+                        {"label": "Random Forest", "value": "rf"},
+                        {"label": "Both", "value": "both"}
                     ],
-                    value="logreg",
+                    value="both",
                     clearable=False,
                     style={"marginTop": "0.5rem"}
                 )
@@ -132,7 +133,7 @@ def create_controls_sidebar(test_samples: int, positive_rate: float):
                 ),
                 html.Div([
                     dbc.Button(
-                        [html.I(className="bi bi-balance-scale", style={"marginRight": "0.35rem"}), "Balanced"],
+                        [html.I(className="bi bi-sliders", style={"marginRight": "0.35rem"}), "Balanced"],
                         id="btn-global-mode-balanced",
                         color="primary",
                         outline=False,

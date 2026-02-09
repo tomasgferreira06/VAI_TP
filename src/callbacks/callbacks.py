@@ -11,9 +11,10 @@ from sklearn.metrics import (
     accuracy_score, precision_score, recall_score, f1_score, roc_auc_score
 )
 
-from src.config.settings import COLORS, MODEL_NAMES
+from src.config.settings import COLORS, MODEL_NAMES, MODEL_COLORS
 from src.models.training import global_metrics, recompute_with_threshold
 from src.components.cards import create_metric_card
+from src.utils.helpers import hex_to_rgba
 from src.charts import (
     create_metrics_comparison_chart,
     create_roc_curves,
@@ -39,10 +40,8 @@ from src.charts import (
     create_fairness_rates_chart,
     create_fairness_disparity_chart,
     create_fairness_horizon_chart,
-    HORIZON_METRIC_CONFIG,
-    create_parallel_coordinates,
-    create_radar_chart,
-    create_sunburst_errors
+    create_fairness_sunburst,
+    HORIZON_METRIC_CONFIG
 )
 
 
@@ -83,15 +82,72 @@ def register_callbacks(app, eval_df: pd.DataFrame, pipelines: dict, cat_cols: li
             filtered_df = df[df["race"] != "White"]
         else:
             filtered_df = df
+        
+        # Handle "both" mode - show both models with clean design
+        if selected_model == "both":
+            cards = [
+                ("accuracy", "Accuracy", COLORS["warning"]),
+                ("precision", "Precision", COLORS["secondary"]),
+                ("recall", "Recall", COLORS["error"]),
+                ("f1", "F1-Score", "#A78BFA")  # Purple
+            ]
+            
+            model_sections = []
+            for model_key, model_label in [("logreg", "Logistic Regression"), ("rf", "Random Forest")]:
+                model_df = filtered_df[filtered_df["model"] == model_key]
+                metrics = global_metrics(model_df)
+                model_color = MODEL_COLORS.get(model_key, COLORS["primary"])
+                
+                # Clean model section with colored accent
+                model_section = html.Div([
+                    # Simple colored bar + model name
+                    html.Div([
+                        html.Div(style={
+                            "width": "4px",
+                            "height": "20px",
+                            "background": model_color,
+                            "borderRadius": "2px",
+                            "marginRight": "0.75rem"
+                        }),
+                        html.Span(model_label, style={
+                            "fontSize": "0.95rem",
+                            "fontWeight": "600",
+                            "color": COLORS["text_primary"]
+                        })
+                    ], style={
+                        "display": "flex",
+                        "alignItems": "center",
+                        "marginBottom": "0.75rem"
+                    }),
+                    # Metrics cards
+                    dbc.Row([
+                        dbc.Col([
+                            create_metric_card(metrics[metric], label, color)
+                        ], md=3, sm=6)
+                        for metric, label, color in cards
+                    ], className="g-3")
+                ], style={
+                    "marginBottom": "2rem",
+                    "paddingBottom": "1.5rem",
+                    "borderBottom": f"1px solid {COLORS['border']}"
+                })
+                
+                model_sections.append(model_section)
+            
+            # Remove border from last section
+            if model_sections:
+                model_sections[-1].style["borderBottom"] = "none"
+            
+            return html.Div(model_sections)
             
         model_df = filtered_df[filtered_df["model"] == selected_model]
         metrics = global_metrics(model_df)
         
         cards = [
-            ("accuracy", "Accuracy", COLORS["primary"]),
-            ("precision", "Precision", COLORS["accent"]),
-            ("recall", "Recall", COLORS["secondary"]),
-            ("f1", "F1-Score", COLORS["warning"])
+            ("accuracy", "Accuracy", COLORS["warning"]),
+            ("precision", "Precision", COLORS["secondary"]),
+            ("recall", "Recall", COLORS["error"]),
+            ("f1", "F1-Score", "#FAC68B")  # Purple
         ]
         
         return dbc.Row([
@@ -255,56 +311,16 @@ def register_callbacks(app, eval_df: pd.DataFrame, pipelines: dict, cat_cols: li
         )
 
     @app.callback(
-        Output("calib-decision-mode-store", "data"),
-        [Input("btn-calib-balanced", "n_clicks"),
-         Input("btn-calib-precision", "n_clicks"),
-         Input("btn-calib-recall", "n_clicks")],
-        prevent_initial_call=True
-    )
-    def update_calib_decision_mode(n_bal, n_prec, n_rec):
-        """Atualiza o modo de decisão do calibration plot."""
-        triggered = ctx.triggered_id
-        if triggered == "btn-calib-balanced":
-            return "balanced"
-        elif triggered == "btn-calib-precision":
-            return "precision"
-        elif triggered == "btn-calib-recall":
-            return "recall"
-        return "balanced"
-
-    @app.callback(
-        [Output("btn-calib-balanced", "outline"),
-         Output("btn-calib-precision", "outline"),
-         Output("btn-calib-recall", "outline"),
-         Output("btn-calib-balanced", "style"),
-         Output("btn-calib-precision", "style"),
-         Output("btn-calib-recall", "style")],
-        Input("calib-decision-mode-store", "data")
-    )
-    def update_calib_decision_buttons(mode):
-        """Atualiza estilo dos botões de decision mode do calibration."""
-        active_style = {}
-        inactive_style = {"backgroundColor": "transparent", "color": COLORS["primary"]}
-        return (
-            mode != "balanced",
-            mode != "precision",
-            mode != "recall",
-            active_style if mode == "balanced" else inactive_style,
-            active_style if mode == "precision" else inactive_style,
-            active_style if mode == "recall" else inactive_style
-        )
-
-    @app.callback(
         [Output("calibration-plot-chart", "figure"),
          Output("calibration-insight-text", "children")],
         [Input("threshold-slider", "value"),
          Input("calib-bins-store", "data"),
          Input("calib-subgroup-selector", "value"),
-         Input("calib-decision-mode-store", "data"),
+         Input("global-decision-mode-store", "data"),
          Input("calib-error-threshold", "value")]
     )
     def update_calibration_plot(threshold, n_bins, subgroup_mode, decision_mode, error_threshold):
-        """Atualiza o calibration plot avançado."""
+        """Atualiza o calibration plot avançado ligado ao decision mode global."""
         if subgroup_mode == "global":
             fig, insight = create_advanced_calibration_plot(
                 eval_df,
@@ -367,21 +383,24 @@ def register_callbacks(app, eval_df: pd.DataFrame, pipelines: dict, cat_cols: li
         Output("threshold-analysis-chart", "figure"),
         [Input("model-selector", "value"),
          Input("threshold-slider", "value"),
-         Input("global-decision-mode-store", "data"),
-         Input("threshold-metrics-toggle", "value"),
-         Input("threshold-overlay-toggle", "value")]
+         Input("global-decision-mode-store", "data")]
     )
-    def update_threshold_analysis(selected_model, threshold, decision_mode, metrics_toggle, overlay_toggle):
+    def update_threshold_analysis(selected_model, threshold, decision_mode):
         """Atualiza o gráfico Metrics vs Threshold com funcionalidades enhanced."""
-        # Parse toggles
-        show_precision = "precision" in (metrics_toggle or [])
-        show_recall = "recall" in (metrics_toggle or [])
-        show_f1 = "f1" in (metrics_toggle or [])
-        overlay_models = "overlay" in (overlay_toggle or [])
+        # Always show all metrics
+        show_precision = True
+        show_recall = True
+        show_f1 = True
+        
+        # Overlay when "both" is selected
+        overlay_models = (selected_model == "both")
+        
+        # Default to logreg for single model view when needed
+        effective_model = "logreg" if selected_model == "both" else selected_model
         
         return create_threshold_analysis_enhanced(
             eval_df,
-            selected_model=selected_model,
+            selected_model=effective_model,
             threshold=threshold,
             decision_mode=decision_mode or "balanced",
             show_precision=show_precision,
@@ -400,10 +419,12 @@ def register_callbacks(app, eval_df: pd.DataFrame, pipelines: dict, cat_cols: li
     def update_fp_fn_evolution(selected_model, threshold, decision_mode, display_mode):
         """Atualiza o gráfico Errors vs Threshold com funcionalidades enhanced."""
         show_counts = display_mode == "counts"
+        # Default to logreg when "both" is selected (this chart shows single model)
+        effective_model = "logreg" if selected_model == "both" else selected_model
         
         return create_fp_fn_evolution_enhanced(
             eval_df,
-            selected_model=selected_model,
+            selected_model=effective_model,
             threshold=threshold,
             decision_mode=decision_mode or "balanced",
             show_counts=show_counts
@@ -554,10 +575,14 @@ def register_callbacks(app, eval_df: pd.DataFrame, pipelines: dict, cat_cols: li
          Input("cm-comparison-mode-store", "data")]
     )
     def update_confusion_matrix(selected_model, threshold, norm_mode, comparison_mode):
+        # Force side_by_side comparison when "both" is selected
+        effective_comparison = "side_by_side" if selected_model == "both" else (comparison_mode or "single")
+        effective_model = "logreg" if selected_model == "both" else selected_model
+        
         return create_advanced_confusion_matrix(
-            eval_df, selected_model, threshold, 
+            eval_df, effective_model, threshold, 
             norm_mode or "counts", 
-            comparison_mode or "single"
+            effective_comparison
         )
 
     @app.callback(
@@ -617,6 +642,15 @@ def register_callbacks(app, eval_df: pd.DataFrame, pipelines: dict, cat_cols: li
     )
     def update_fairness_rates(sensitive_col, threshold):
         return create_fairness_rates_chart(eval_df, sensitive_col, threshold)
+    
+    @app.callback(
+        Output("fairness-sunburst-chart", "figure"),
+        [Input("sensitive-selector", "value"),
+         Input("threshold-slider", "value"),
+         Input("model-selector", "value")]
+    )
+    def update_fairness_sunburst(sensitive_col, threshold, model_focus):
+        return create_fairness_sunburst(eval_df, sensitive_col, threshold, model_focus)
 
     # ═══════════════════════════════════════════════════════════════════════════════
     # VIEW 4: Horizon Graph (Advanced Fairness Visualization)
@@ -628,7 +662,7 @@ def register_callbacks(app, eval_df: pd.DataFrame, pipelines: dict, cat_cols: li
         [Input("sensitive-selector", "value"),
          Input("threshold-slider", "value"),
          Input("horizon-metric-selector", "value"),
-         Input("horizon-model-focus", "value")]
+         Input("model-selector", "value")]
     )
     def update_horizon_chart(sensitive_col, threshold, metric_name, model_focus):
         """Atualiza o Horizon Graph de fairness."""
@@ -682,31 +716,7 @@ def register_callbacks(app, eval_df: pd.DataFrame, pipelines: dict, cat_cols: li
 
         return fig, legend
 
-    # ═══════════════════════════════════════════════════════════════════════════════
-    # VIEW 5: Visualizações Avançadas
-    # ═══════════════════════════════════════════════════════════════════════════════
 
-    @app.callback(
-        Output("parallel-coords-chart", "figure"),
-        Input("threshold-slider", "value")
-    )
-    def update_parallel_coords(threshold):
-        return create_parallel_coordinates(eval_df, threshold)
-
-    @app.callback(
-        Output("radar-chart", "figure"),
-        Input("threshold-slider", "value")
-    )
-    def update_radar_chart(threshold):
-        return create_radar_chart(eval_df, threshold)
-
-    @app.callback(
-        Output("sunburst-chart", "figure"),
-        [Input("threshold-slider", "value"),
-         Input("model-selector", "value")]
-    )
-    def update_sunburst_chart(threshold, model):
-        return create_sunburst_errors(eval_df, threshold, model)
 
     # ═══════════════════════════════════════════════════════════════════════════════
     # BOTÃO RESET
@@ -723,7 +733,7 @@ def register_callbacks(app, eval_df: pd.DataFrame, pipelines: dict, cat_cols: li
     def reset_controls(n_clicks):
         """Reset todos os controlos para valores default."""
         if n_clicks:
-            return 0.5, "logreg", "sex", "balanced"
+            return 0.5, "both", "sex", "balanced"
         return dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
     # ═══════════════════════════════════════════════════════════════════════════════

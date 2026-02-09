@@ -122,41 +122,6 @@ def create_calibration_controls() -> html.Div:
                 )
             ], width="auto"),
             
-            # Decision Mode for Calibration
-            dbc.Col([
-                html.Label("Focus", style={
-                    "fontSize": "0.7rem",
-                    "color": COLORS["text_muted"],
-                    "textTransform": "uppercase",
-                    "letterSpacing": "0.05em",
-                    "marginBottom": "0.25rem",
-                    "display": "block"
-                }),
-                dbc.ButtonGroup([
-                    dbc.Button(
-                        [html.I(className="bi bi-distribute-horizontal", style={"marginRight": "0.25rem"}), "All"],
-                        id="btn-calib-balanced",
-                        color="primary",
-                        outline=False,
-                        size="sm"
-                    ),
-                    dbc.Button(
-                        [html.I(className="bi bi-bullseye", style={"marginRight": "0.25rem"}), "Prec"],
-                        id="btn-calib-precision",
-                        color="primary",
-                        outline=True,
-                        size="sm"
-                    ),
-                    dbc.Button(
-                        [html.I(className="bi bi-search", style={"marginRight": "0.25rem"}), "Rec"],
-                        id="btn-calib-recall",
-                        color="primary",
-                        outline=True,
-                        size="sm"
-                    ),
-                ], size="sm")
-            ], width="auto"),
-            
             # Error Threshold
             dbc.Col([
                 html.Label("Error Threshold", style={
@@ -179,9 +144,8 @@ def create_calibration_controls() -> html.Div:
             ], width=3),
         ], className="g-3 align-items-end", justify="start"),
         
-        # Stores para os estados do Calibration
+        # Store para bins do Calibration
         dcc.Store(id="calib-bins-store", data=10),
-        dcc.Store(id="calib-decision-mode-store", data="balanced"),
         
     ], style={
         "background": f"{COLORS['bg_hover']}44",
@@ -201,6 +165,10 @@ def create_tab_global() -> html.Div:
         dbc.Row([
             dbc.Col([
                 html.Div([
+                    create_section_header(
+                        "Metric Comparison by Model",
+                        "Performance metrics across models — highlight winners and decision mode emphasis"
+                    ),
                     # Controlos do gráfico
                     create_metrics_controls(),
                     # Gráfico
@@ -209,6 +177,10 @@ def create_tab_global() -> html.Div:
             ], lg=6),
             dbc.Col([
                 html.Div([
+                    create_section_header(
+                        "ROC Curves",
+                        "Receiver Operating Characteristic — trade-off between TPR and FPR"
+                    ),
                     dcc.Graph(id="roc-curves-chart", config={"displayModeBar": False})
                 ], className="dashboard-card")
             ], lg=6)
@@ -218,6 +190,10 @@ def create_tab_global() -> html.Div:
         dbc.Row([
             dbc.Col([
                 html.Div([
+                    create_section_header(
+                        "Calibration Plot",
+                        "Reliability diagram — predicted probabilities vs observed frequencies"
+                    ),
                     # Controlos avançados do Calibration Plot
                     create_calibration_controls(),
                     # Gráfico
@@ -311,79 +287,7 @@ def create_pr_curve_controls() -> html.Div:
 
 def create_threshold_analysis_controls() -> html.Div:
     """Cria os controlos para o gráfico Metrics vs Threshold avançado."""
-    return html.Div([
-        dbc.Row([
-            # Toggle: Show/Hide Precision
-            dbc.Col([
-                html.Label("Metrics", style={
-                    "fontSize": "0.7rem",
-                    "color": COLORS["text_muted"],
-                    "textTransform": "uppercase",
-                    "letterSpacing": "0.05em",
-                    "marginBottom": "0.25rem",
-                    "display": "block"
-                }),
-                dbc.Checklist(
-                    options=[
-                        {"label": " Precision", "value": "precision"},
-                        {"label": " Recall", "value": "recall"},
-                        {"label": " F1-Score", "value": "f1"},
-                    ],
-                    value=["precision", "recall", "f1"],  # All selected by default
-                    id="threshold-metrics-toggle",
-                    inline=True,
-                    style={"fontSize": "0.8rem"}
-                )
-            ], width="auto"),
-            
-            # Toggle: Overlay Models
-            dbc.Col([
-                html.Label("Models", style={
-                    "fontSize": "0.7rem",
-                    "color": COLORS["text_muted"],
-                    "textTransform": "uppercase",
-                    "letterSpacing": "0.05em",
-                    "marginBottom": "0.25rem",
-                    "display": "block"
-                }),
-                dbc.Checklist(
-                    options=[{"label": " Overlay both models", "value": "overlay"}],
-                    value=[],
-                    id="threshold-overlay-toggle",
-                    switch=True,
-                    style={"fontSize": "0.8rem"}
-                )
-            ], width="auto"),
-            
-            # Info icon with tooltip
-            dbc.Col([
-                html.Div([
-                    html.I(
-                        className="bi bi-info-circle",
-                        id="threshold-info-icon",
-                        style={
-                            "fontSize": "1rem",
-                            "color": COLORS["primary_light"],
-                            "cursor": "pointer",
-                            "marginTop": "1.5rem"
-                        }
-                    ),
-                    dbc.Tooltip(
-                        "This plot shows how Precision, Recall, and F1-Score change with different decision thresholds. "
-                        "The highlighted region and optimal point change based on the global Decision Mode.",
-                        target="threshold-info-icon",
-                        placement="right"
-                    )
-                ])
-            ], width="auto"),
-        ], className="g-3 align-items-end", justify="start"),
-        
-    ], style={
-        "background": f"{COLORS['bg_hover']}44",
-        "borderRadius": "8px",
-        "padding": "0.75rem 1rem",
-        "marginBottom": "0.75rem"
-    })
+    return html.Div([], style={"display": "none"})
 
 
 def create_fp_fn_controls() -> html.Div:
@@ -555,6 +459,10 @@ def create_tab_tradeoffs() -> html.Div:
         dbc.Row([
             dbc.Col([
                 html.Div([
+                    create_section_header(
+                        "Precision-Recall Curve",
+                        "Trade-off between precision and recall across thresholds"
+                    ),
                     # PR Curve Controls
                     create_pr_curve_controls(),
                     # PR Curve Chart
@@ -576,6 +484,10 @@ def create_tab_tradeoffs() -> html.Div:
             ], lg=6),
             dbc.Col([
                 html.Div([
+                    create_section_header(
+                        "Metrics vs Threshold",
+                        "How precision, recall and F1 evolve as threshold changes"
+                    ),
                     # Threshold Analysis Controls
                     create_threshold_analysis_controls(),
                     # Threshold Analysis Chart
@@ -588,6 +500,10 @@ def create_tab_tradeoffs() -> html.Div:
         dbc.Row([
             dbc.Col([
                 html.Div([
+                    create_section_header(
+                        "Error Evolution",
+                        "False positives and false negatives as threshold changes"
+                    ),
                     # FP/FN Controls
                     create_fp_fn_controls(),
                     # FP/FN Chart
@@ -600,31 +516,10 @@ def create_tab_tradeoffs() -> html.Div:
         dbc.Row([
             dbc.Col([
                 html.Div([
-                    # Section Header
-                    html.Div([
-                        html.Div([
-                            html.I(className="bi bi-diagram-3", style={
-                                "fontSize": "1.1rem", 
-                                "marginRight": "0.75rem", 
-                                "color": COLORS["secondary"]
-                            }),
-                            html.Span("Operating Points Analysis", style={
-                                "fontWeight": "600",
-                                "color": COLORS["text_primary"],
-                                "fontSize": "1rem"
-                            })
-                        ], style={"display": "flex", "alignItems": "center"}),
-                        html.Span(
-                            "Multi-criteria comparison across models, thresholds, and subgroups. "
-                            "Brush axes to filter and highlight operating points.",
-                            style={
-                                "color": COLORS["text_secondary"],
-                                "fontSize": "0.8rem",
-                                "marginTop": "0.25rem",
-                                "display": "block"
-                            }
-                        )
-                    ], style={"marginBottom": "1rem"}),
+                    create_section_header(
+                        "Operating Points Analysis",
+                        "Multi-criteria comparison across models, thresholds, and subgroups — brush axes to filter"
+                    ),
                     
                     # PCP Controls
                     create_pcp_controls(),
@@ -692,31 +587,10 @@ def create_tab_errors() -> html.Div:
         dbc.Row([
             dbc.Col([
                 html.Div([
-                    # Section Header
-                    html.Div([
-                        html.Div([
-                            html.I(className="bi bi-grid-3x3", style={
-                                "fontSize": "1.1rem", 
-                                "marginRight": "0.75rem", 
-                                "color": COLORS["primary_light"]
-                            }),
-                            html.Span("Interactive Confusion Matrix", style={
-                                "fontWeight": "600",
-                                "color": COLORS["text_primary"],
-                                "fontSize": "1rem"
-                            })
-                        ], style={"display": "flex", "alignItems": "center"}),
-                        html.Span(
-                            "Explore error patterns across thresholds and models. "
-                            "Hover cells for rich diagnostics.",
-                            style={
-                                "color": COLORS["text_secondary"],
-                                "fontSize": "0.8rem",
-                                "marginTop": "0.25rem",
-                                "display": "block"
-                            }
-                        )
-                    ], style={"marginBottom": "1rem"}),
+                    create_section_header(
+                        "Interactive Confusion Matrix",
+                        "Explore error patterns across thresholds and models — hover cells for diagnostics"
+                    ),
                     
                     # Controls Row
                     html.Div([
@@ -914,29 +788,6 @@ def create_horizon_controls() -> html.Div:
                 )
             ], width="auto"),
 
-            # Model focus (LR / RF / Both)
-            dbc.Col([
-                html.Label("Model Focus", style={
-                    "fontSize": "0.7rem",
-                    "color": COLORS["text_muted"],
-                    "textTransform": "uppercase",
-                    "letterSpacing": "0.05em",
-                    "marginBottom": "0.25rem",
-                    "display": "block"
-                }),
-                dbc.RadioItems(
-                    options=[
-                        {"label": " LR", "value": "logreg"},
-                        {"label": " RF", "value": "rf"},
-                        {"label": " Both", "value": "both"},
-                    ],
-                    value="both",
-                    id="horizon-model-focus",
-                    inline=True,
-                    style={"fontSize": "0.85rem"}
-                )
-            ], width="auto"),
-
             # Info icon
             dbc.Col([
                 html.Div([
@@ -1004,18 +855,10 @@ def create_tab_fairness() -> html.Div:
         dbc.Row([
             dbc.Col([
                 html.Div([
-                    # Section header
-                    html.Div([
-                        html.I(className="bi bi-graph-up", style={
-                            "fontSize": "1.1rem", "marginRight": "0.5rem",
-                            "color": COLORS["primary_light"]
-                        }),
-                        html.Span("Horizon Graph — Fairness Across Thresholds", style={
-                            "fontWeight": "600",
-                            "color": COLORS["text_primary"],
-                            "fontSize": "0.95rem"
-                        }),
-                    ], style={"marginBottom": "0.75rem"}),
+                    create_section_header(
+                        "Horizon Graph — Fairness Across Thresholds",
+                        "Error rates by demographic group as threshold changes — darker bands indicate higher error"
+                    ),
 
                     # Controls
                     create_horizon_controls(),
@@ -1068,11 +911,19 @@ def create_tab_fairness() -> html.Div:
         dbc.Row([
             dbc.Col([
                 html.Div([
+                    create_section_header(
+                        "Accuracy by Group",
+                        "Model accuracy across demographic subgroups"
+                    ),
                     dcc.Graph(id="fairness-accuracy-chart", config={"displayModeBar": False})
                 ], className="dashboard-card")
             ], lg=6),
             dbc.Col([
                 html.Div([
+                    create_section_header(
+                        "Accuracy Disparity",
+                        "Gap between best and worst performing groups per model"
+                    ),
                     dcc.Graph(id="fairness-disparity-chart", config={"displayModeBar": False})
                 ], className="dashboard-card")
             ], lg=6)
@@ -1082,62 +933,47 @@ def create_tab_fairness() -> html.Div:
         dbc.Row([
             dbc.Col([
                 html.Div([
+                    create_section_header(
+                        "Error Rates by Group",
+                        "False positive and false negative rates across demographic subgroups"
+                    ),
                     dcc.Graph(id="fairness-rates-chart", config={"displayModeBar": False})
                 ], className="dashboard-card")
             ], lg=12)
-        ])
-    ])
-
-
-def create_tab_advanced() -> html.Div:
-    """Tab de visualizações avançadas (Parallel Coordinates, Radar, Sunburst)."""
-    return html.Div([
-        # Explanation Card
-        html.Div([
-            html.Div([
-                html.I(className="bi bi-stars", style={"fontSize": "1.25rem", "marginRight": "0.75rem", "color": COLORS["primary_light"]}),
-                html.Div([
-                    html.Span("Advanced Visualizations", style={
-                        "fontWeight": "600", 
-                        "color": COLORS["text_primary"],
-                        "display": "block",
-                        "marginBottom": "0.25rem"
-                    }),
-                    html.Span(
-                        "Tecnicas avancadas de visualizacao multidimensional para comparacao holistica de modelos. "
-                        "Parallel Coordinates para multi-metricas, Radar Chart para perfil visual, e Sunburst para hierarquia de erros.",
-                        style={"color": COLORS["text_secondary"], "fontSize": "0.85rem"}
-                    )
-                ])
-            ], style={"display": "flex", "alignItems": "flex-start"})
-        ], style={
-            "background": f"{COLORS['primary']}11",
-            "border": f"1px solid {COLORS['primary']}33",
-            "borderRadius": "12px",
-            "padding": "1rem 1.25rem",
-            "marginBottom": "1.5rem"
-        }),
+        ]),
         
-        # Row 1: Parallel Coordinates + Radar Chart
+        # Sunburst - Hierarchical Error Distribution
         dbc.Row([
             dbc.Col([
                 html.Div([
-                    dcc.Graph(id="parallel-coords-chart", config={"displayModeBar": False})
-                ], className="dashboard-card")
-            ], lg=6),
-            dbc.Col([
-                html.Div([
-                    dcc.Graph(id="radar-chart", config={"displayModeBar": False})
-                ], className="dashboard-card")
-            ], lg=6)
-        ], style={"marginBottom": "1.5rem"}),
-        
-        # Row 2: Sunburst
-        dbc.Row([
-            dbc.Col([
-                html.Div([
-                    dcc.Graph(id="sunburst-chart", config={"displayModeBar": False})
+                    create_section_header(
+                        "Hierarchical Error Distribution",
+                        "Interactive breakdown of predictions by error type and demographic group"
+                    ),
+                    dcc.Graph(id="fairness-sunburst-chart", config={"displayModeBar": False}),
+                    
+                    html.Div([
+                        html.P(
+                            "Click on segments to zoom in and explore the distribution. "
+                            "The size of each segment represents the count of predictions in that category.",
+                            style={
+                                "fontSize": "0.8rem",
+                                "color": COLORS["text_secondary"],
+                                "marginBottom": "0",
+                                "lineHeight": "1.5",
+                                "fontStyle": "italic"
+                            }
+                        )
+                    ], style={
+                        "background": f"{COLORS['bg_hover']}44",
+                        "borderRadius": "6px",
+                        "padding": "0.75rem 1rem",
+                        "marginTop": "0.5rem"
+                    })
                 ], className="dashboard-card")
             ], lg=12)
-        ])
+        ], style={"marginTop": "1.5rem"})
     ])
+
+
+

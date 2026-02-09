@@ -750,10 +750,12 @@ def create_threshold_analysis_enhanced(
         model_name = MODEL_NAMES.get(model, model)
         model_color = MODEL_COLORS.get(model, COLORS["primary"])
         
-        # Use different line styles for overlay mode
-        line_dash = "solid"
-        if overlay_models and model != models_to_plot[0]:
-            line_dash = "dash"
+        # Define line styles for each metric when in overlay mode
+        metric_line_styles = {
+            "precision": "solid",
+            "recall": "dash",
+            "f1": "dot"
+        }
         
         # ═══════════════════════════════════════════════════════════════════════
         # PLOT METRIC CURVES WITH RICH TOOLTIPS (B)
@@ -779,12 +781,14 @@ def create_threshold_analysis_enhanced(
                 )
                 hover_texts.append(hover_text)
             
-            # Adjust color for overlay mode
+            # Adjust color and line style for overlay mode
             if overlay_models:
                 curve_color = model_color
+                line_dash = metric_line_styles.get(metric_key, "solid")
                 trace_name = f"{metric_label} ({model_name})"
             else:
                 curve_color = metric_color
+                line_dash = "solid"
                 trace_name = metric_label
             
             fig.add_trace(go.Scatter(
@@ -945,7 +949,7 @@ def create_threshold_analysis_enhanced(
         x=[None], y=[None],
         mode="markers",
         marker=dict(size=14, color=COLORS["warning"], symbol="circle", line=dict(color="white", width=3)),
-        name=f"Current Threshold ({threshold:.2f})",
+        name=f"● Current Threshold ({threshold:.2f})",
         showlegend=True,
         hoverinfo="skip"
     ))
@@ -959,6 +963,33 @@ def create_threshold_analysis_enhanced(
         showlegend=True,
         hoverinfo="skip"
     ))
+    
+    # Add legend entries for line styles when in overlay mode
+    if overlay_models:
+        fig.add_trace(go.Scatter(
+            x=[None], y=[None],
+            mode="lines",
+            line=dict(color="gray", width=2, dash="solid"),
+            name="─── Precision",
+            showlegend=True,
+            hoverinfo="skip"
+        ))
+        fig.add_trace(go.Scatter(
+            x=[None], y=[None],
+            mode="lines",
+            line=dict(color="gray", width=2, dash="dash"),
+            name="- - - Recall",
+            showlegend=True,
+            hoverinfo="skip"
+        ))
+        fig.add_trace(go.Scatter(
+            x=[None], y=[None],
+            mode="lines",
+            line=dict(color="gray", width=2, dash="dot"),
+            name="··· F1-Score",
+            showlegend=True,
+            hoverinfo="skip"
+        ))
     
     # ═══════════════════════════════════════════════════════════════════════════
     # LAYOUT
@@ -981,16 +1012,16 @@ def create_threshold_analysis_enhanced(
         xaxis_range=[0.08, 0.92],
         yaxis_range=[0, 1.08],
         yaxis_tickformat=".0%",
-        height=480,
+        height=550 if overlay_models else 480,
         legend=dict(
             orientation="h",
             yanchor="bottom",
-            y=-0.35,
+            y=-0.5 if overlay_models else -0.35,
             xanchor="center",
             x=0.5,
-            font=dict(size=10)
+            font=dict(size=9)
         ),
-        margin=dict(b=130),
+        margin=dict(b=180 if overlay_models else 130),
         transition=dict(duration=400, easing="cubic-in-out")
     )
     

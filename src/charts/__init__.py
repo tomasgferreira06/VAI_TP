@@ -47,14 +47,11 @@ from src.charts.view4_fairness import (
     create_fairness_rates_chart,
     create_fairness_disparity_chart,
     create_fairness_horizon_chart,
+    create_fairness_sunburst,
     compute_fairness_metrics_grid,
     HORIZON_METRIC_CONFIG
 )
-from src.charts.advanced import (
-    create_parallel_coordinates,
-    create_radar_chart,
-    create_sunburst_errors
-)
+
 
 __all__ = [
     # View 1
@@ -100,10 +97,7 @@ __all__ = [
     "create_fairness_rates_chart",
     "create_fairness_disparity_chart",
     "create_fairness_horizon_chart",
+    "create_fairness_sunburst",
     "compute_fairness_metrics_grid",
-    "HORIZON_METRIC_CONFIG",
-    # Advanced
-    "create_parallel_coordinates",
-    "create_radar_chart",
-    "create_sunburst_errors"
+    "HORIZON_METRIC_CONFIG"
 ]
