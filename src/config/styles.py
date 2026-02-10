@@ -336,14 +336,70 @@ body {{
 }}
 
 /* ══════════════════════════════════════════════════════════════════════════ */
+/* EQUAL HEIGHT ROW LAYOUT                                                     */
+/* ══════════════════════════════════════════════════════════════════════════ */
+.row-equal {{
+    display: flex;
+    gap: 1rem;
+    align-items: stretch;
+    margin-bottom: 1.5rem;
+}}
+
+.card-equal {{
+    flex: 1 1 0;
+    display: flex;
+    flex-direction: column;
+    min-height: 540px;
+}}
+
+.card-equal .dashboard-card {{
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}}
+
+.card-equal .card-body-fill {{
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}}
+
+.plot-fill {{
+    flex: 1 1 auto;
+    min-height: 300px;
+}}
+
+/* Make the actual Graph element stretch */
+.plot-fill .js-plotly-plot,
+.plot-fill .plot-container,
+.plot-fill .svg-container {{
+    height: 100% !important;
+    width: 100% !important;
+}}
+
+/* ══════════════════════════════════════════════════════════════════════════ */
 /* RESPONSIVE                                                                  */
 /* ══════════════════════════════════════════════════════════════════════════ */
+@media (max-width: 992px) {{
+    .row-equal {{
+        flex-direction: column;
+    }}
+    .card-equal {{
+        min-height: 480px;
+    }}
+}}
+
 @media (max-width: 768px) {{
     .main-title {{
         font-size: 1.5rem;
     }}
     .dashboard-card {{
         padding: 1rem;
+    }}
+    .card-equal {{
+        min-height: 420px;
     }}
 }}
 """

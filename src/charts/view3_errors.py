@@ -190,7 +190,7 @@ def _create_single_confusion_matrix(
     recall = raw["tp"] / (raw["tp"] + raw["fn"]) if (raw["tp"] + raw["fn"]) > 0 else 0
     f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
     
-    # Add metrics annotation
+    # Add metrics annotation (paper coordinates for reliable positioning)
     metrics_text = (
         f"<b>Accuracy:</b> {accuracy:.1%}<br>"
         f"<b>Precision:</b> {precision:.1%}<br>"
@@ -199,8 +199,12 @@ def _create_single_confusion_matrix(
     )
     
     fig.add_annotation(
-        x=1.45,
+        x=0.98,
         y=0.5,
+        xref="paper",
+        yref="paper",
+        xanchor="left",
+        yanchor="middle",
         text=metrics_text,
         showarrow=False,
         font=dict(size=11, color=COLORS["text_primary"]),
@@ -219,9 +223,17 @@ def _create_single_confusion_matrix(
         ),
         xaxis_title="Predicted Label",
         yaxis_title="Actual Label",
-        height=420,
-        yaxis_autorange="reversed",
-        margin=dict(r=120),
+        xaxis=dict(
+            constrain="domain",
+            scaleanchor="y",
+            scaleratio=1
+        ),
+        yaxis=dict(
+            constrain="domain",
+            autorange="reversed"
+        ),
+        height=450,
+        margin=dict(l=80, r=160, t=80, b=80),
         transition=dict(duration=400, easing="cubic-in-out")
     )
     
@@ -320,6 +332,12 @@ def _create_side_by_side_confusion_matrix(
     
     fig.update_yaxes(autorange="reversed")
     
+    # Force square aspect ratio on each subplot
+    fig.update_xaxes(constrain="domain", row=1, col=1)
+    fig.update_yaxes(constrain="domain", scaleanchor="x", scaleratio=1, row=1, col=1)
+    fig.update_xaxes(constrain="domain", row=1, col=2)
+    fig.update_yaxes(constrain="domain", scaleanchor="x2", scaleratio=1, row=1, col=2)
+    
     fig.update_layout(
         title=dict(
             text=f"Confusion Matrix Comparison<br>"
@@ -327,8 +345,9 @@ def _create_side_by_side_confusion_matrix(
                  f"Mode: {mode_titles[norm_mode]} | Threshold: {threshold:.2f}</span>",
             font=dict(size=15)
         ),
-        height=420,
+        height=450,
         showlegend=False,
+        margin=dict(l=80, r=80, t=80, b=80),
         transition=dict(duration=400, easing="cubic-in-out")
     )
     
@@ -438,10 +457,11 @@ def _create_delta_confusion_matrix(
     
     # Add interpretation legend
     fig.add_annotation(
-        x=1.35,
+        x=0.98,
         y=0.85,
         xref="paper",
         yref="paper",
+        xanchor="left",
         text=(
             f"<span style='color:{COLORS['accent']}'>■</span> RF has more<br>"
             f"<span style='color:{COLORS['primary']}'>■</span> LR has more"
@@ -460,9 +480,10 @@ def _create_delta_confusion_matrix(
         ),
         xaxis_title="Predicted Label",
         yaxis_title="Actual Label",
-        height=420,
-        yaxis_autorange="reversed",
-        margin=dict(r=130),
+        xaxis=dict(constrain="domain", scaleanchor="y", scaleratio=1),
+        yaxis=dict(constrain="domain", autorange="reversed"),
+        height=450,
+        margin=dict(l=80, r=160, t=80, b=80),
         transition=dict(duration=400, easing="cubic-in-out")
     )
     
@@ -481,13 +502,13 @@ def create_confusion_matrix_heatmap(df: pd.DataFrame, selected_model: str, thres
 
 
 
-def compute_error_tradeoff_data(df: pd.DataFrame, subgroup: str = "global") -> pd.DataFrame:
+def compute_error_tradeoff_data(df: pd.DataFrame, analysis_focus: str = "global") -> pd.DataFrame:
     """
     Compute FPR and FNR for all models across a range of thresholds.
     
     Args:
         df: DataFrame de avaliação
-        subgroup: "global", "Male", "Female", "White", "Non-White"
+        analysis_focus: "global", "sex", or "race"
         
     Returns:
         DataFrame with columns: model, threshold, subgroup, fpr, fnr, fp, fn, tp, tn, precision, recall
@@ -496,54 +517,56 @@ def compute_error_tradeoff_data(df: pd.DataFrame, subgroup: str = "global") -> p
     models = ["logreg", "rf"]
     results = []
     
+    # Define subgroups based on analysis_focus
+    if analysis_focus == "sex":
+        subgroup_filters = [
+            ("Male", lambda d: d[d["sex"] == "Male"]),
+            ("Female", lambda d: d[d["sex"] == "Female"])
+        ]
+    elif analysis_focus == "race":
+        subgroup_filters = [
+            ("White", lambda d: d[d["race"] == "White"]),
+            ("Non-White", lambda d: d[d["race"] != "White"])
+        ]
+    else:
+        subgroup_filters = [
+            ("Global", lambda d: d)
+        ]
+    
     for model in models:
         model_df = df[df["model"] == model]
         
-        # Filter by subgroup
-        if subgroup == "global":
-            filtered_df = model_df
-            subgroup_label = "Global"
-        elif subgroup in ["Male", "Female"]:
-            filtered_df = model_df[model_df["sex"] == subgroup]
-            subgroup_label = subgroup
-        elif subgroup == "White":
-            filtered_df = model_df[model_df["race"] == "White"]
-            subgroup_label = "White"
-        elif subgroup == "Non-White":
-            filtered_df = model_df[model_df["race"] != "White"]
-            subgroup_label = "Non-White"
-        else:
-            filtered_df = model_df
-            subgroup_label = "Global"
+        for subgroup_label, filter_fn in subgroup_filters:
+            filtered_df = filter_fn(model_df)
         
-        for t in thresholds:
-            temp_df = recompute_with_threshold(filtered_df, t)
-            
-            if len(temp_df) == 0:
-                continue
+            for t in thresholds:
+                temp_df = recompute_with_threshold(filtered_df, t)
                 
-            cm = confusion_matrix(temp_df["y_true"], temp_df["y_pred"], labels=[0, 1])
-            tn, fp, fn, tp = cm.ravel()
-            
-            fpr = fp / (fp + tn) if (fp + tn) > 0 else 0
-            fnr = fn / (fn + tp) if (fn + tp) > 0 else 0
-            precision = tp / (tp + fp) if (tp + fp) > 0 else 0
-            recall = tp / (tp + fn) if (tp + fn) > 0 else 0
-            
-            results.append({
-                "model": model,
-                "model_name": MODEL_NAMES.get(model, model),
-                "threshold": t,
-                "subgroup": subgroup_label,
-                "fpr": fpr,
-                "fnr": fnr,
-                "fp": int(fp),
-                "fn": int(fn),
-                "tp": int(tp),
-                "tn": int(tn),
-                "precision": precision,
-                "recall": recall
-            })
+                if len(temp_df) == 0:
+                    continue
+                    
+                cm = confusion_matrix(temp_df["y_true"], temp_df["y_pred"], labels=[0, 1])
+                tn, fp, fn, tp = cm.ravel()
+                
+                fpr = fp / (fp + tn) if (fp + tn) > 0 else 0
+                fnr = fn / (fn + tp) if (fn + tp) > 0 else 0
+                precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+                recall = tp / (tp + fn) if (tp + fn) > 0 else 0
+                
+                results.append({
+                    "model": model,
+                    "model_name": MODEL_NAMES.get(model, model),
+                    "threshold": t,
+                    "subgroup": subgroup_label,
+                    "fpr": fpr,
+                    "fnr": fnr,
+                    "fp": int(fp),
+                    "fn": int(fn),
+                    "tp": int(tp),
+                    "tn": int(tn),
+                    "precision": precision,
+                    "recall": recall
+                })
     
     return pd.DataFrame(results)
 
@@ -551,7 +574,7 @@ def compute_error_tradeoff_data(df: pd.DataFrame, subgroup: str = "global") -> p
 def create_error_tradeoff_scatter(
     df: pd.DataFrame,
     current_threshold: float = 0.5,
-    subgroup: str = "global"
+    analysis_focus: str = "global"
 ) -> go.Figure:
     """
     Error Trade-off Scatter: FPR vs FNR trajectories for both models.
@@ -563,13 +586,13 @@ def create_error_tradeoff_scatter(
     Args:
         df: DataFrame de avaliação
         current_threshold: Current global threshold (highlighted on trajectories)
-        subgroup: "global", "Male", "Female", "White", "Non-White"
+        analysis_focus: "global", "sex", or "race"
         
     Returns:
         Figura Plotly
     """
     # Compute data for all thresholds
-    data = compute_error_tradeoff_data(df, subgroup)
+    data = compute_error_tradeoff_data(df, analysis_focus)
     
     if data.empty:
         fig = go.Figure()
@@ -614,125 +637,52 @@ def create_error_tradeoff_scatter(
     all_fpr = data["fpr"].values
     all_fnr = data["fnr"].values
     
+    # Get unique subgroups for iteration
+    subgroups = data["subgroup"].unique().tolist()
+    is_multi_subgroup = len(subgroups) > 1
+    
+    # Line dash styles for subgroups
+    subgroup_dashes = {subgroups[0]: "solid"}
+    if is_multi_subgroup:
+        subgroup_dashes[subgroups[1]] = "dash"
+    
     for model in ["logreg", "rf"]:
-        model_data = data[data["model"] == model].sort_values("threshold")
         style = model_styles[model]
         
-        if model_data.empty:
-            continue
-        
-        # Calculate marker sizes based on threshold
-        marker_sizes = [threshold_to_size(t) for t in model_data["threshold"]]
-        
-        # Create custom data for rich tooltips
-        customdata = np.column_stack([
-            model_data["threshold"],
-            model_data["fp"],
-            model_data["fn"],
-            model_data["tp"],
-            model_data["tn"],
-            model_data["precision"] * 100,
-            model_data["recall"] * 100,
-            model_data["fpr"] * 100,
-            model_data["fnr"] * 100
-        ])
-        
-        # Hover template with all metrics
-        hover_template = (
-            f"<b>{style['name']}</b><br>"
-            f"<b>Subgroup:</b> {model_data['subgroup'].iloc[0]}<br><br>"
-            "<b>Threshold:</b> %{customdata[0]:.2f}<br>"
-            "<b>FPR:</b> %{customdata[7]:.1f}%<br>"
-            "<b>FNR:</b> %{customdata[8]:.1f}%<br><br>"
-            "<b>Confusion Matrix:</b><br>"
-            "  TP: %{customdata[3]:,} | FP: %{customdata[1]:,}<br>"
-            "  FN: %{customdata[2]:,} | TN: %{customdata[4]:,}<br><br>"
-            "<b>Precision:</b> %{customdata[5]:.1f}%<br>"
-            "<b>Recall:</b> %{customdata[6]:.1f}%"
-            "<extra></extra>"
-        )
-        
-        # Trajectory line (thin, connecting the dots)
-        fig.add_trace(go.Scatter(
-            x=model_data["fpr"],
-            y=model_data["fnr"],
-            mode="lines",
-            name=f"{style['name']} path",
-            line=dict(color=style["color_light"], width=2),
-            hoverinfo="skip",
-            showlegend=False,
-            legendgroup=model
-        ))
-        
-        # Main markers with size encoding threshold
-        fig.add_trace(go.Scatter(
-            x=model_data["fpr"],
-            y=model_data["fnr"],
-            mode="markers",
-            name=style["name"],
-            marker=dict(
-                size=marker_sizes,
-                color=style["color_light"],
-                symbol=style["symbol"],
-                line=dict(width=1.5, color=style["color"]),
-                opacity=0.85
-            ),
-            customdata=customdata,
-            hovertemplate=hover_template,
-            legendgroup=model
-        ))
-        
-        # Highlight current threshold point with pulsing effect
-        # Reset index to ensure proper indexing
-        model_data_reset = model_data.reset_index(drop=True)
-        threshold_diffs = (model_data_reset["threshold"] - current_threshold).abs()
-        closest_pos = threshold_diffs.idxmin()
-        current_point = model_data_reset.iloc[closest_pos]
-        current_size = threshold_to_size(current_point["threshold"])
-        
-        # Outer glow for current point
-        fig.add_trace(go.Scatter(
-            x=[current_point["fpr"]],
-            y=[current_point["fnr"]],
-            mode="markers",
-            marker=dict(
-                size=current_size + 14,
-                color=style["color"],
-                symbol=style["symbol"],
-                opacity=0.25
-            ),
-            hoverinfo="skip",
-            showlegend=False,
-            legendgroup=model
-        ))
-        
-        # Current point marker (solid, highlighted)
-        fig.add_trace(go.Scatter(
-            x=[current_point["fpr"]],
-            y=[current_point["fnr"]],
-            mode="markers",
-            name=f"Current (t={current_threshold:.2f})",
-            marker=dict(
-                size=current_size + 6,
-                color=style["color"],
-                symbol=style["symbol"],
-                line=dict(width=3, color=COLORS["text_primary"]),
-                opacity=1
-            ),
-            customdata=[[
-                current_point["threshold"],
-                current_point["fp"],
-                current_point["fn"],
-                current_point["tp"],
-                current_point["tn"],
-                current_point["precision"] * 100,
-                current_point["recall"] * 100,
-                current_point["fpr"] * 100,
-                current_point["fnr"] * 100
-            ]],
-            hovertemplate=(
-                f"<b>{style['name']} — CURRENT</b><br>"
-                f"<b>Subgroup:</b> {current_point['subgroup']}<br><br>"
+        for subgroup in subgroups:
+            group_data = data[(data["model"] == model) & (data["subgroup"] == subgroup)].sort_values("threshold")
+            
+            if group_data.empty:
+                continue
+            
+            line_dash = subgroup_dashes.get(subgroup, "solid")
+            legend_group = f"{model}_{subgroup}"
+            
+            # Build label
+            if is_multi_subgroup:
+                trace_name = f"{style['name']} — {subgroup}"
+            else:
+                trace_name = style["name"]
+            
+            # Calculate marker sizes based on threshold
+            marker_sizes = [threshold_to_size(t) for t in group_data["threshold"]]
+            
+            # Create custom data for rich tooltips
+            customdata = np.column_stack([
+                group_data["threshold"],
+                group_data["fp"],
+                group_data["fn"],
+                group_data["tp"],
+                group_data["tn"],
+                group_data["precision"] * 100,
+                group_data["recall"] * 100,
+                group_data["fpr"] * 100,
+                group_data["fnr"] * 100
+            ])
+            
+            # Hover template with all metrics
+            hover_template = (
+                f"<b>{trace_name}</b><br><br>"
                 "<b>Threshold:</b> %{customdata[0]:.2f}<br>"
                 "<b>FPR:</b> %{customdata[7]:.1f}%<br>"
                 "<b>FNR:</b> %{customdata[8]:.1f}%<br><br>"
@@ -742,27 +692,118 @@ def create_error_tradeoff_scatter(
                 "<b>Precision:</b> %{customdata[5]:.1f}%<br>"
                 "<b>Recall:</b> %{customdata[6]:.1f}%"
                 "<extra></extra>"
-            ),
-            showlegend=False,
-            legendgroup=model
-        ))
-        
-        # Add model name label near the trajectory
-        mid_idx = len(model_data) // 2
-        mid_point = model_data.iloc[mid_idx]
-        
-        # Offset for label positioning
-        x_offset = 0.015 if model == "logreg" else -0.015
-        y_offset = 0.02 if model == "logreg" else -0.02
-        
-        fig.add_annotation(
-            x=mid_point["fpr"] + x_offset,
-            y=mid_point["fnr"] + y_offset,
-            text=f"<b>{style['name']}</b>",
-            showarrow=False,
-            font=dict(size=10, color=style["color"]),
-            opacity=0.9
-        )
+            )
+            
+            # Trajectory line (thin, connecting the dots)
+            fig.add_trace(go.Scatter(
+                x=group_data["fpr"],
+                y=group_data["fnr"],
+                mode="lines",
+                name=f"{trace_name} path",
+                line=dict(color=style["color_light"], width=2, dash=line_dash),
+                hoverinfo="skip",
+                showlegend=False,
+                legendgroup=legend_group
+            ))
+            
+            # Main markers with size encoding threshold
+            marker_symbol = "circle" if line_dash == "solid" else "diamond"
+            fig.add_trace(go.Scatter(
+                x=group_data["fpr"],
+                y=group_data["fnr"],
+                mode="markers",
+                name=trace_name,
+                marker=dict(
+                    size=marker_sizes,
+                    color=style["color_light"],
+                    symbol=marker_symbol,
+                    line=dict(width=1.5, color=style["color"]),
+                    opacity=0.85
+                ),
+                customdata=customdata,
+                hovertemplate=hover_template,
+                legendgroup=legend_group
+            ))
+            
+            # Highlight current threshold point
+            group_data_reset = group_data.reset_index(drop=True)
+            threshold_diffs = (group_data_reset["threshold"] - current_threshold).abs()
+            closest_pos = threshold_diffs.idxmin()
+            current_point = group_data_reset.iloc[closest_pos]
+            current_size = threshold_to_size(current_point["threshold"])
+            
+            # Outer glow for current point
+            fig.add_trace(go.Scatter(
+                x=[current_point["fpr"]],
+                y=[current_point["fnr"]],
+                mode="markers",
+                marker=dict(
+                    size=current_size + 14,
+                    color=style["color"],
+                    symbol=marker_symbol,
+                    opacity=0.25
+                ),
+                hoverinfo="skip",
+                showlegend=False,
+                legendgroup=legend_group
+            ))
+            
+            # Current point marker (solid, highlighted)
+            fig.add_trace(go.Scatter(
+                x=[current_point["fpr"]],
+                y=[current_point["fnr"]],
+                mode="markers",
+                name=f"Current (t={current_threshold:.2f})",
+                marker=dict(
+                    size=current_size + 6,
+                    color=style["color"],
+                    symbol=marker_symbol,
+                    line=dict(width=3, color=COLORS["text_primary"]),
+                    opacity=1
+                ),
+                customdata=[[
+                    current_point["threshold"],
+                    current_point["fp"],
+                    current_point["fn"],
+                    current_point["tp"],
+                    current_point["tn"],
+                    current_point["precision"] * 100,
+                    current_point["recall"] * 100,
+                    current_point["fpr"] * 100,
+                    current_point["fnr"] * 100
+                ]],
+                hovertemplate=(
+                    f"<b>{trace_name} — CURRENT</b><br><br>"
+                    "<b>Threshold:</b> %{customdata[0]:.2f}<br>"
+                    "<b>FPR:</b> %{customdata[7]:.1f}%<br>"
+                    "<b>FNR:</b> %{customdata[8]:.1f}%<br><br>"
+                    "<b>Confusion Matrix:</b><br>"
+                    "  TP: %{customdata[3]:,} | FP: %{customdata[1]:,}<br>"
+                    "  FN: %{customdata[2]:,} | TN: %{customdata[4]:,}<br><br>"
+                    "<b>Precision:</b> %{customdata[5]:.1f}%<br>"
+                    "<b>Recall:</b> %{customdata[6]:.1f}%"
+                    "<extra></extra>"
+                ),
+                showlegend=False,
+                legendgroup=legend_group
+            ))
+            
+            # Add label near trajectory (only for first subgroup to avoid clutter)
+            if not is_multi_subgroup or subgroup == subgroups[0]:
+                mid_idx = len(group_data) // 2
+                mid_point = group_data.iloc[mid_idx]
+                
+                x_offset = 0.015 if model == "logreg" else -0.015
+                y_offset = 0.02 if model == "logreg" else -0.02
+                
+                fig.add_annotation(
+                    x=mid_point["fpr"] + x_offset,
+                    y=mid_point["fnr"] + y_offset,
+                    text=f"<b>{style['name']}</b>",
+                    showarrow=False,
+                    font=dict(size=10, color=style["color"]),
+                    opacity=0.9
+                )
     
     # ═══════════════════════════════════════════════════════════════════════════════
     # THRESHOLD SIZE LEGEND (Gapminder style - horizontal at top)
@@ -886,14 +927,15 @@ def create_error_tradeoff_scatter(
     fpr_range = [max(0, all_fpr.min() - fpr_padding), min(1, all_fpr.max() + fpr_padding)]
     fnr_range = [max(0, all_fnr.min() - fnr_padding), min(1, all_fnr.max() + fnr_padding)]
     
-    # Get actual subgroup label from the data
-    subgroup_label = data["subgroup"].iloc[0] if not data.empty else "Global"
+    # Build title subtitle based on analysis focus
+    focus_labels = {"global": "", "sex": " by Sex", "race": " by Race"}
+    title_focus = focus_labels.get(analysis_focus, "")
     
     fig.update_layout(
         title=dict(
-            text=f"Error Trade-off Trajectories<br>"
+            text=f"Error Trade-off Trajectories{title_focus}<br>"
                  f"<span style='font-size:12px;color:{COLORS['text_secondary']}'>"
-                 f"Subgroup: {subgroup_label} — Marker size encodes threshold value</span>",
+                 f"Marker size encodes threshold value</span>",
             font=dict(size=15),
             x=0.02,
             xanchor="left"
@@ -953,7 +995,7 @@ def create_error_tradeoff_scatter(
         paper_bgcolor="rgba(0,0,0,0)",
         transition=dict(duration=400, easing="cubic-in-out"),
         margin=dict(t=120, r=40),
-        uirevision=f"{current_threshold}-{subgroup}"  # Force update on threshold/subgroup change
+        uirevision=f"{current_threshold}-{analysis_focus}"
     )
     
     return fig

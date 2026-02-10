@@ -43,9 +43,6 @@ from src.charts.view3_errors import (
     compute_error_tradeoff_data
 )
 from src.charts.view4_fairness import (
-    create_fairness_accuracy_chart,
-    create_fairness_rates_chart,
-    create_fairness_disparity_chart,
     create_fairness_horizon_chart,
     create_fairness_sunburst,
     compute_fairness_metrics_grid,
@@ -93,9 +90,6 @@ __all__ = [
     "create_error_tradeoff_scatter",
     "compute_error_tradeoff_data",
     # View 4
-    "create_fairness_accuracy_chart",
-    "create_fairness_rates_chart",
-    "create_fairness_disparity_chart",
     "create_fairness_horizon_chart",
     "create_fairness_sunburst",
     "compute_fairness_metrics_grid",

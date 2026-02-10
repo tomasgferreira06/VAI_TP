@@ -7,7 +7,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from sklearn.metrics import precision_recall_curve, average_precision_score, confusion_matrix
 
-from src.config.settings import COLORS, MODEL_COLORS, MODEL_NAMES
+from src.config.settings import COLORS, MODEL_COLORS, MODEL_NAMES, CHART_LEGEND_CONFIG
 from src.models.training import global_metrics, recompute_with_threshold
 
 
@@ -114,7 +114,8 @@ def create_precision_recall_curve_enhanced(
     df: pd.DataFrame,
     threshold: float = 0.5,
     decision_mode: str = "balanced",
-    show_area: bool = False
+    show_area: bool = False,
+    analysis_focus: str = "global"
 ) -> tuple:
     """
     Enhanced Precision-Recall curve with decision-oriented interactions.
@@ -124,6 +125,7 @@ def create_precision_recall_curve_enhanced(
         threshold: Current global threshold
         decision_mode: "balanced", "precision", or "recall"
         show_area: Whether to fill area under curve
+        analysis_focus: "global", "sex", or "race" - demographic analysis mode
         
     Returns:
         Tuple of (figure, delta_ap_text)
@@ -134,6 +136,23 @@ def create_precision_recall_curve_enhanced(
     
     # Store AP values for delta calculation
     ap_values = {}
+    
+    # Configure demographic groups based on analysis_focus
+    if analysis_focus == "sex":
+        demographic_groups = [
+            ("Male", df[df["sex"] == "Male"], "solid"),
+            ("Female", df[df["sex"] == "Female"], "dash")
+        ]
+        title_demographic = " by Sex"
+    elif analysis_focus == "race":
+        demographic_groups = [
+            ("White", df[df["race"] == "White"], "solid"),
+            ("Non-White", df[df["race"] != "White"], "dash")
+        ]
+        title_demographic = " by Race"
+    else:
+        demographic_groups = [("Global", df, "solid")]
+        title_demographic = ""
     
     # ═══════════════════════════════════════════════════════════════════════════
     # D) HIGHLIGHT REGIONS OF INTEREST (background shapes)
@@ -181,160 +200,177 @@ def create_precision_recall_curve_enhanced(
         )
     
     # ═══════════════════════════════════════════════════════════════════════════
-    # MAIN PR CURVES FOR EACH MODEL
+    # MAIN PR CURVES FOR EACH MODEL AND DEMOGRAPHIC GROUP
     # ═══════════════════════════════════════════════════════════════════════════
     
     # Store first model's optimal point for annotation (avoid recalculating later)
     first_model_optimal = None
     
     for model in df["model"].unique():
-        model_df = df[df["model"] == model]
-        y_true = model_df["y_true"].values
-        y_proba = model_df["y_proba"].values
-        
-        precision, recall, thresholds = precision_recall_curve(y_true, y_proba)
-        ap = average_precision_score(y_true, y_proba)
-        ap_values[model] = ap
-        
         model_color = MODEL_COLORS.get(model, COLORS["primary"])
         model_name = MODEL_NAMES.get(model, model)
         
-        # ═══════════════════════════════════════════════════════════════════════
-        # G) OPTIONAL: FILLED AREA UNDER CURVE
-        # ═══════════════════════════════════════════════════════════════════════
+        for group_name, group_df, line_dash in demographic_groups:
+            model_group_df = group_df[group_df["model"] == model]
+            
+            if len(model_group_df) < 10:
+                continue
+                
+            y_true = model_group_df["y_true"].values
+            y_proba = model_group_df["y_proba"].values
+            
+            precision, recall, thresholds = precision_recall_curve(y_true, y_proba)
+            ap = average_precision_score(y_true, y_proba)
+            
+            # Store AP with group info for delta calculation
+            ap_key = f"{model}_{group_name}" if analysis_focus != "global" else model
+            ap_values[ap_key] = ap
+            
+            # Build legend name based on analysis focus
+            if analysis_focus == "global":
+                legend_name = f"{model_name} (AP = {ap:.3f})"
+                legend_group = model
+            else:
+                legend_name = f"{model_name} ({group_name}) — AP: {ap:.3f}"
+                legend_group = f"{model}_{group_name}"
+            
+            # ═══════════════════════════════════════════════════════════════════════
+            # G) OPTIONAL: FILLED AREA UNDER CURVE
+            # ═══════════════════════════════════════════════════════════════════════
+            
+            if show_area and analysis_focus == "global":  # Only show area for global view
+                fig.add_trace(go.Scatter(
+                    x=recall,
+                    y=precision,
+                    mode="none",
+                    fill="tozeroy",
+                    fillcolor=f"rgba{tuple(list(int(model_color.lstrip('#')[i:i+2], 16) for i in (0, 2, 4)) + [0.15])}",
+                    name=f"{model_name} Area",
+                    legendgroup=legend_group,
+                    showlegend=False,
+                    hoverinfo="skip"
+                ))
         
-        if show_area:
+            # ═══════════════════════════════════════════════════════════════════════
+            # B) RICH TOOLTIP ALONG THE CURVE (OPTIMIZED)
+            # ═══════════════════════════════════════════════════════════════════════
+            
+            # Prepare custom data for rich tooltips
+            # Note: thresholds array is 1 shorter than precision/recall
+            custom_thresholds = np.append(thresholds, thresholds[-1] if len(thresholds) > 0 else 0.5)
+            f1_scores = _compute_f1_scores(precision, recall)
+            
+            # OPTIMIZATION: Don't compute confusion matrix for every point
+            # Only show basic metrics in hover - confusion matrix only for marker points
+            hover_texts = []
+            display_name = f"{model_name} ({group_name})" if analysis_focus != "global" else model_name
+            for i in range(len(precision)):
+                t = custom_thresholds[i] if i < len(custom_thresholds) else custom_thresholds[-1]
+                
+                hover_text = (
+                    f"<b>{display_name}</b><br>"
+                    f"Threshold: {t:.3f}<br>"
+                    f"Precision: {precision[i]:.3f}<br>"
+                    f"Recall: {recall[i]:.3f}<br>"
+                    f"F1: {f1_scores[i]:.3f}"
+                )
+                hover_texts.append(hover_text)
+            
+            # Determine curve opacity based on decision mode
+            curve_opacity = 1.0
+            if decision_mode == "precision":
+                # Emphasize high-precision portion
+                pass  # We'll use full opacity but can dim in other ways
+            elif decision_mode == "recall":
+                # Emphasize high-recall portion
+                pass
+            
+            # Main PR curve trace
             fig.add_trace(go.Scatter(
                 x=recall,
                 y=precision,
-                mode="none",
-                fill="tozeroy",
-                fillcolor=f"rgba{tuple(list(int(model_color.lstrip('#')[i:i+2], 16) for i in (0, 2, 4)) + [0.15])}",
-                name=f"{model_name} Area",
-                legendgroup=model,
-                showlegend=False,
-                hoverinfo="skip"
+                mode="lines",
+                name=legend_name,
+                line={"color": model_color, "width": 2.5, "dash": line_dash},
+                hovertemplate="%{customdata}<extra></extra>",
+                customdata=hover_texts,
+                opacity=curve_opacity,
+                legendgroup=legend_group,
+                showlegend=True
             ))
-        
-        # ═══════════════════════════════════════════════════════════════════════
-        # B) RICH TOOLTIP ALONG THE CURVE (OPTIMIZED)
-        # ═══════════════════════════════════════════════════════════════════════
-        
-        # Prepare custom data for rich tooltips
-        # Note: thresholds array is 1 shorter than precision/recall
-        custom_thresholds = np.append(thresholds, thresholds[-1] if len(thresholds) > 0 else 0.5)
-        f1_scores = _compute_f1_scores(precision, recall)
-        
-        # OPTIMIZATION: Don't compute confusion matrix for every point
-        # Only show basic metrics in hover - confusion matrix only for marker points
-        hover_texts = []
-        for i in range(len(precision)):
-            t = custom_thresholds[i] if i < len(custom_thresholds) else custom_thresholds[-1]
             
-            hover_text = (
-                f"<b>{model_name}</b><br>"
-                f"Threshold: {t:.3f}<br>"
-                f"Precision: {precision[i]:.3f}<br>"
-                f"Recall: {recall[i]:.3f}<br>"
-                f"F1: {f1_scores[i]:.3f}"
+            # ═══════════════════════════════════════════════════════════════════════
+            # A) THRESHOLD MARKER (LINKED TO GLOBAL SLIDER)
+            # ═══════════════════════════════════════════════════════════════════════
+            
+            # Find closest point to current threshold
+            thresh_idx = _find_closest_threshold_idx(thresholds, threshold)
+            thresh_precision = precision[thresh_idx]
+            thresh_recall = recall[thresh_idx]
+            actual_threshold = thresholds[thresh_idx] if thresh_idx < len(thresholds) else threshold
+            
+            # Compute confusion at current threshold
+            cm_at_thresh = _compute_confusion_at_threshold(y_true, y_proba, actual_threshold)
+            
+            marker_hover = (
+                f"<b>Current Threshold — {display_name}</b><br>"
+                f"Threshold: {actual_threshold:.3f}<br>"
+                f"Precision: {thresh_precision:.3f}<br>"
+                f"Recall: {thresh_recall:.3f}<br>"
+                f"─────────────<br>"
+                f"TP: {cm_at_thresh['tp']:,} | FP: {cm_at_thresh['fp']:,}<br>"
+                f"FN: {cm_at_thresh['fn']:,}"
             )
-            hover_texts.append(hover_text)
-        
-        # Determine curve opacity based on decision mode
-        curve_opacity = 1.0
-        if decision_mode == "precision":
-            # Emphasize high-precision portion
-            pass  # We'll use full opacity but can dim in other ways
-        elif decision_mode == "recall":
-            # Emphasize high-recall portion
-            pass
-        
-        # Main PR curve trace
-        fig.add_trace(go.Scatter(
-            x=recall,
-            y=precision,
-            mode="lines",
-            name=f"{model_name} (AP = {ap:.3f})",
-            line={"color": model_color, "width": 2.5},
-            hovertemplate="%{customdata}<extra></extra>",
-            customdata=hover_texts,
-            opacity=curve_opacity,
-            legendgroup=model,
-            showlegend=True
-        ))
-        
-        # ═══════════════════════════════════════════════════════════════════════
-        # A) THRESHOLD MARKER (LINKED TO GLOBAL SLIDER)
-        # ═══════════════════════════════════════════════════════════════════════
-        
-        # Find closest point to current threshold
-        thresh_idx = _find_closest_threshold_idx(thresholds, threshold)
-        thresh_precision = precision[thresh_idx]
-        thresh_recall = recall[thresh_idx]
-        actual_threshold = thresholds[thresh_idx] if thresh_idx < len(thresholds) else threshold
-        
-        # Compute confusion at current threshold
-        cm_at_thresh = _compute_confusion_at_threshold(y_true, y_proba, actual_threshold)
-        
-        marker_hover = (
-            f"<b>Current Threshold</b><br>"
-            f"Threshold: {actual_threshold:.3f}<br>"
-            f"Precision: {thresh_precision:.3f}<br>"
-            f"Recall: {thresh_recall:.3f}<br>"
-            f"─────────────<br>"
-            f"TP: {cm_at_thresh['tp']:,} | FP: {cm_at_thresh['fp']:,}<br>"
-            f"FN: {cm_at_thresh['fn']:,}"
-        )
-        
-        fig.add_trace(go.Scatter(
-            x=[thresh_recall],
-            y=[thresh_precision],
-            mode="markers",
-            name=f"{model_name} @ t={actual_threshold:.2f}",
-            marker=dict(
-                size=14,
-                color=model_color,
-                symbol="circle",
-                line=dict(color="white", width=3)
-            ),
-            hovertemplate=marker_hover + "<extra></extra>",
-            legendgroup=model,
-            showlegend=False
-        ))
-        
-        # ═══════════════════════════════════════════════════════════════════════
-        # E) & F) OPTIMAL POINT ACCORDING TO DECISION MODE
-        # ═══════════════════════════════════════════════════════════════════════
-        
-        optimal = _find_optimal_point(precision, recall, thresholds, decision_mode)
-        
-        # Store first model's optimal for annotation later
-        if first_model_optimal is None:
-            first_model_optimal = optimal
-        
-        # Different marker for optimal point
-        fig.add_trace(go.Scatter(
-            x=[optimal["recall"]],
-            y=[optimal["precision"]],
-            mode="markers",
-            name=f"{model_name} Optimal",
-            marker=dict(
-                size=12,
-                color=model_color,
-                symbol="star",
-                line=dict(color="white", width=2)
-            ),
-            hovertemplate=(
-                f"<b>Optimal ({mode_config['label']})</b><br>"
-                f"Threshold: {optimal['threshold']:.3f}<br>"
-                f"Precision: {optimal['precision']:.3f}<br>"
-                f"Recall: {optimal['recall']:.3f}<br>"
-                f"F1: {optimal['f1']:.3f}"
-                "<extra></extra>"
-            ),
-            legendgroup=model,
-            showlegend=False
-        ))
+            
+            fig.add_trace(go.Scatter(
+                x=[thresh_recall],
+                y=[thresh_precision],
+                mode="markers",
+                name=f"{display_name} @ t={actual_threshold:.2f}",
+                marker=dict(
+                    size=14,
+                    color=model_color,
+                    symbol="circle",
+                    line=dict(color="white", width=3)
+                ),
+                hovertemplate=marker_hover + "<extra></extra>",
+                legendgroup=legend_group,
+                showlegend=False
+            ))
+            
+            # ═══════════════════════════════════════════════════════════════════════
+            # E) & F) OPTIMAL POINT ACCORDING TO DECISION MODE
+            # ═══════════════════════════════════════════════════════════════════════
+            
+            optimal = _find_optimal_point(precision, recall, thresholds, decision_mode)
+            
+            # Store first model's optimal for annotation later
+            if first_model_optimal is None:
+                first_model_optimal = optimal
+            
+            # Different marker for optimal point
+            fig.add_trace(go.Scatter(
+                x=[optimal["recall"]],
+                y=[optimal["precision"]],
+                mode="markers",
+                name=f"{display_name} Optimal",
+                marker=dict(
+                    size=12,
+                    color=model_color,
+                    symbol="star",
+                    line=dict(color="white", width=2)
+                ),
+                hovertemplate=(
+                    f"<b>Optimal ({mode_config['label']}) — {display_name}</b><br>"
+                    f"Threshold: {optimal['threshold']:.3f}<br>"
+                    f"Precision: {optimal['precision']:.3f}<br>"
+                    f"Recall: {optimal['recall']:.3f}<br>"
+                    f"F1: {optimal['f1']:.3f}"
+                    "<extra></extra>"
+                ),
+                legendgroup=legend_group,
+                showlegend=False
+            ))
     
     # ═══════════════════════════════════════════════════════════════════════════
     # LEGEND MARKERS: Add dummy traces to explain symbols in legend
@@ -385,12 +421,12 @@ def create_precision_recall_curve_enhanced(
     # LAYOUT
     # ═══════════════════════════════════════════════════════════════════════════
     
-    # Build title with mode indication
+    # Build title with mode indication and demographic info
     title_suffix = f" • Mode: {mode_config['label']}"
     
     fig.update_layout(
         title=dict(
-            text=f"Precision-Recall Curves{title_suffix}",
+            text=f"Precision-Recall Curves{title_demographic}{title_suffix}",
             font=dict(size=14)
         ),
         xaxis_title="Recall",
@@ -398,14 +434,7 @@ def create_precision_recall_curve_enhanced(
         xaxis_range=[0, 1.02],
         yaxis_range=[0, 1.05],
         height=480,
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=-0.35,
-            xanchor="center",
-            x=0.5,
-            font=dict(size=10)
-        ),
+        legend=CHART_LEGEND_CONFIG,
         margin=dict(b=130),
         transition=dict(duration=400, easing="cubic-in-out")
     )
@@ -625,7 +654,8 @@ def create_threshold_analysis_enhanced(
     show_precision: bool = True,
     show_recall: bool = True,
     show_f1: bool = True,
-    overlay_models: bool = False
+    overlay_models: bool = False,
+    analysis_focus: str = "global"
 ) -> go.Figure:
     """
     Enhanced Metrics vs Threshold analysis with decision-oriented interactions.
@@ -647,6 +677,7 @@ def create_threshold_analysis_enhanced(
         show_recall: Whether to show Recall curve
         show_f1: Whether to show F1 curve
         overlay_models: If True, overlay both models; if False, show only selected_model
+        analysis_focus: "global", "sex", or "race" - demographic analysis mode
         
     Returns:
         Figura Plotly
@@ -654,6 +685,23 @@ def create_threshold_analysis_enhanced(
     fig = go.Figure()
     
     mode_config = THRESHOLD_DECISION_MODE_CONFIG.get(decision_mode, THRESHOLD_DECISION_MODE_CONFIG["balanced"])
+    
+    # Configure demographic groups based on analysis focus
+    if analysis_focus == "sex":
+        demographic_groups = [
+            ("Male", df[df["sex"] == "Male"], "solid"),
+            ("Female", df[df["sex"] == "Female"], "dash")
+        ]
+        title_demographic = " by Sex"
+    elif analysis_focus == "race":
+        demographic_groups = [
+            ("White", df[df["race"] == "White"], "solid"),
+            ("Non-White", df[df["race"] != "White"], "dash")
+        ]
+        title_demographic = " by Race"
+    else:
+        demographic_groups = [("All Data", df, "solid")]
+        title_demographic = ""
     
     # Determine which models to plot
     if overlay_models:
@@ -715,208 +763,210 @@ def create_threshold_analysis_enhanced(
         # We'll highlight the F1 peak region after computing metrics
         pass
     
-    # Store data for each model
+    # Store data for each model and group combination
     all_model_data = {}
     
     for model in models_to_plot:
-        model_df = df[df["model"] == model]
-        y_true = model_df["y_true"].values
-        y_proba = model_df["y_proba"].values
-        
-        # Compute metrics at each threshold
-        metrics_by_thresh = []
-        for t in thresholds:
-            temp_df = recompute_with_threshold(model_df, t)
-            m = global_metrics(temp_df)
-            m["threshold"] = t
-            
-            # Compute confusion matrix for rich tooltips
-            y_pred_at_t = (y_proba >= t).astype(int)
-            cm = confusion_matrix(y_true, y_pred_at_t)
-            if cm.shape == (2, 2):
-                tn, fp, fn, tp = cm.ravel()
-            else:
-                tn, fp, fn, tp = 0, 0, 0, 0
-            m["tp"] = tp
-            m["fp"] = fp
-            m["fn"] = fn
-            m["tn"] = tn
-            
-            metrics_by_thresh.append(m)
-        
-        thresh_df = pd.DataFrame(metrics_by_thresh)
-        all_model_data[model] = thresh_df
-        
         model_name = MODEL_NAMES.get(model, model)
         model_color = MODEL_COLORS.get(model, COLORS["primary"])
         
-        # Define line styles for each metric when in overlay mode
-        metric_line_styles = {
-            "precision": "solid",
-            "recall": "dash",
-            "f1": "dot"
-        }
-        
-        # ═══════════════════════════════════════════════════════════════════════
-        # PLOT METRIC CURVES WITH RICH TOOLTIPS (B)
-        # ═══════════════════════════════════════════════════════════════════════
-        
-        for metric_key, metric_label, metric_color, is_visible in metric_config:
-            if not is_visible:
+        for group_name, group_df, line_dash in demographic_groups:
+            model_group_df = group_df[group_df["model"] == model]
+            
+            if len(model_group_df) < 10:
                 continue
+                
+            y_true = model_group_df["y_true"].values
+            y_proba = model_group_df["y_proba"].values
             
-            # Build rich hover text for each point (B)
-            hover_texts = []
-            for _, row in thresh_df.iterrows():
-                hover_text = (
-                    f"<b>{metric_label}</b><br>"
-                    f"Threshold: {row['threshold']:.3f}<br>"
-                    f"─────────────<br>"
-                    f"Precision: {row['precision']:.3f}<br>"
-                    f"Recall: {row['recall']:.3f}<br>"
-                    f"F1: {row['f1']:.3f}<br>"
-                    f"─────────────<br>"
-                    f"TP: {row['tp']:,.0f} | FP: {row['fp']:,.0f}<br>"
-                    f"FN: {row['fn']:,.0f} | TN: {row['tn']:,.0f}"
-                )
-                hover_texts.append(hover_text)
-            
-            # Adjust color and line style for overlay mode
-            if overlay_models:
-                curve_color = model_color
-                line_dash = metric_line_styles.get(metric_key, "solid")
-                trace_name = f"{metric_label} ({model_name})"
+            # Build display name and legend group
+            if analysis_focus == "global":
+                display_name = model_name
+                legend_group_base = model
             else:
-                curve_color = metric_color
-                line_dash = "solid"
-                trace_name = metric_label
+                display_name = f"{model_name} ({group_name})"
+                legend_group_base = f"{model}_{group_name}"
             
-            fig.add_trace(go.Scatter(
-                x=thresh_df["threshold"],
-                y=thresh_df[metric_key],
-                mode="lines+markers",
-                name=trace_name,
-                line={"color": curve_color, "width": 2.5, "dash": line_dash},
-                marker={"size": 5},
-                hovertemplate="%{customdata}<extra></extra>",
-                customdata=hover_texts,
-                legendgroup=f"{model}_{metric_key}",
-                visible=True
-            ))
-        
-        # ═══════════════════════════════════════════════════════════════════════
-        # A) CURRENT THRESHOLD MARKER (LINKED TO GLOBAL SLIDER)
-        # ═══════════════════════════════════════════════════════════════════════
-        
-        # Find closest threshold in our computed range
-        thresh_idx = np.argmin(np.abs(thresholds - threshold))
-        current_row = thresh_df.iloc[thresh_idx]
-        
-        # Add vertical line for current threshold
-        if model == models_to_plot[0]:  # Only add once
-            fig.add_vline(
-                x=threshold,
-                line_dash="solid",
-                line_color=COLORS["warning"],
-                line_width=2.5,
-                opacity=0.9
-            )
-        
-        # Add markers at intersection points for each visible metric
-        for metric_key, metric_label, metric_color, is_visible in metric_config:
-            if not is_visible:
-                continue
+            # Compute metrics at each threshold
+            metrics_by_thresh = []
+            for t in thresholds:
+                temp_df = recompute_with_threshold(model_group_df, t)
+                m = global_metrics(temp_df)
+                m["threshold"] = t
+                
+                # Compute confusion matrix for rich tooltips
+                y_pred_at_t = (y_proba >= t).astype(int)
+                cm = confusion_matrix(y_true, y_pred_at_t)
+                if cm.shape == (2, 2):
+                    tn, fp, fn, tp = cm.ravel()
+                else:
+                    tn, fp, fn, tp = 0, 0, 0, 0
+                m["tp"] = tp
+                m["fp"] = fp
+                m["fn"] = fn
+                m["tn"] = tn
+                
+                metrics_by_thresh.append(m)
             
-            marker_color = model_color if overlay_models else metric_color
+            thresh_df = pd.DataFrame(metrics_by_thresh)
+            all_model_data[legend_group_base] = thresh_df
             
-            # Rich tooltip for current threshold marker (A)
-            marker_hover = (
-                f"<b>Current Threshold</b><br>"
-                f"Threshold: {current_row['threshold']:.3f}<br>"
-                f"─────────────<br>"
-                f"Precision: {current_row['precision']:.3f}<br>"
-                f"Recall: {current_row['recall']:.3f}<br>"
-                f"F1: {current_row['f1']:.3f}<br>"
-                f"─────────────<br>"
-                f"TP: {current_row['tp']:,.0f} | FP: {current_row['fp']:,.0f}<br>"
-                f"FN: {current_row['fn']:,.0f} | TN: {current_row['tn']:,.0f}"
-            )
+            # Define line styles for each metric when in overlay mode or demographic
+            metric_line_styles = {
+                "precision": "solid",
+                "recall": "dash",
+                "f1": "dot"
+            }
             
-            fig.add_trace(go.Scatter(
-                x=[current_row["threshold"]],
-                y=[current_row[metric_key]],
-                mode="markers",
-                marker=dict(
-                    size=14,
-                    color=marker_color,
-                    symbol="circle",
-                    line=dict(color="white", width=3)
-                ),
-                hovertemplate=marker_hover + "<extra></extra>",
-                showlegend=False,
-                legendgroup=f"{model}_{metric_key}"
-            ))
-        
-        # ═══════════════════════════════════════════════════════════════════════
-        # C) & E) OPTIMAL OPERATING POINT BASED ON DECISION MODE
-        # ═══════════════════════════════════════════════════════════════════════
-        
-        optimal = _find_optimal_threshold_for_mode(thresh_df, decision_mode)
-        optimal_row = thresh_df.loc[optimal["idx"]]
-        
-        # Add optimal threshold vertical line (dashed)
-        if model == models_to_plot[0]:  # Only add once
-            fig.add_vline(
-                x=optimal["threshold"],
-                line_dash="dash",
-                line_color=COLORS["success"],
-                line_width=2,
-                opacity=0.8
-            )
-        
-        # Add star markers at optimal point for each visible metric
-        for metric_key, metric_label, metric_color, is_visible in metric_config:
-            if not is_visible:
-                continue
+            # ═══════════════════════════════════════════════════════════════════════
+            # PLOT METRIC CURVES WITH RICH TOOLTIPS (B)
+            # ═══════════════════════════════════════════════════════════════════════
             
-            marker_color = model_color if overlay_models else COLORS["success"]
+            for metric_key, metric_label, metric_color, is_visible in metric_config:
+                if not is_visible:
+                    continue
+                
+                # Build rich hover text for each point (B)
+                hover_texts = []
+                for _, row in thresh_df.iterrows():
+                    hover_text = (
+                        f"<b>{metric_label} — {display_name}</b><br>"
+                        f"Threshold: {row['threshold']:.3f}<br>"
+                        f"─────────────<br>"
+                        f"Precision: {row['precision']:.3f}<br>"
+                        f"Recall: {row['recall']:.3f}<br>"
+                        f"F1: {row['f1']:.3f}<br>"
+                        f"─────────────<br>"
+                        f"TP: {row['tp']:,.0f} | FP: {row['fp']:,.0f}<br>"
+                        f"FN: {row['fn']:,.0f} | TN: {row['tn']:,.0f}"
+                    )
+                    hover_texts.append(hover_text)
+                
+                # Adjust color and line style based on context
+                if overlay_models or analysis_focus != "global":
+                    curve_color = model_color
+                    metric_line_dash = line_dash if analysis_focus != "global" else metric_line_styles.get(metric_key, "solid")
+                    trace_name = f"{metric_label} ({display_name})"
+                else:
+                    curve_color = metric_color
+                    metric_line_dash = "solid"
+                    trace_name = metric_label
+                
+                fig.add_trace(go.Scatter(
+                    x=thresh_df["threshold"],
+                    y=thresh_df[metric_key],
+                    mode="lines+markers",
+                    name=trace_name,
+                    line={"color": curve_color, "width": 2.5, "dash": metric_line_dash},
+                    marker={"size": 5},
+                    hovertemplate="%{customdata}<extra></extra>",
+                    customdata=hover_texts,
+                    legendgroup=f"{legend_group_base}_{metric_key}",
+                    visible=True
+                ))
             
-            # Optimal point tooltip
-            optimal_hover = (
-                f"<b>{mode_config['annotation']}</b><br>"
-                f"Threshold: {optimal_row['threshold']:.3f}<br>"
-                f"─────────────<br>"
-                f"Precision: {optimal_row['precision']:.3f}<br>"
-                f"Recall: {optimal_row['recall']:.3f}<br>"
-                f"F1: {optimal_row['f1']:.3f}<br>"
-                f"─────────────<br>"
-                f"TP: {optimal_row['tp']:,.0f} | FP: {optimal_row['fp']:,.0f}<br>"
-                f"FN: {optimal_row['fn']:,.0f} | TN: {optimal_row['tn']:,.0f}"
-            )
+            # ═══════════════════════════════════════════════════════════════════════
+            # A) CURRENT THRESHOLD MARKER (LINKED TO GLOBAL SLIDER)
+            # ═══════════════════════════════════════════════════════════════════════
             
-            fig.add_trace(go.Scatter(
-                x=[optimal_row["threshold"]],
-                y=[optimal_row[metric_key]],
-                mode="markers",
-                marker=dict(
-                    size=12,
-                    color=marker_color,
-                    symbol="star",
-                    line=dict(color="white", width=2)
-                ),
-                hovertemplate=optimal_hover + "<extra></extra>",
-                showlegend=False,
-                legendgroup=f"{model}_{metric_key}"
-            ))
+            # Find closest threshold in our computed range
+            thresh_idx = np.argmin(np.abs(thresholds - threshold))
+            current_row = thresh_df.iloc[thresh_idx]
+            
+            # Add markers at intersection points for each visible metric
+            for metric_key, metric_label, metric_color, is_visible in metric_config:
+                if not is_visible:
+                    continue
+                
+                marker_color = model_color if (overlay_models or analysis_focus != "global") else metric_color
+                
+                # Rich tooltip for current threshold marker (A)
+                marker_hover = (
+                    f"<b>Current Threshold — {display_name}</b><br>"
+                    f"Threshold: {current_row['threshold']:.3f}<br>"
+                    f"─────────────<br>"
+                    f"Precision: {current_row['precision']:.3f}<br>"
+                    f"Recall: {current_row['recall']:.3f}<br>"
+                    f"F1: {current_row['f1']:.3f}<br>"
+                    f"─────────────<br>"
+                    f"TP: {current_row['tp']:,.0f} | FP: {current_row['fp']:,.0f}<br>"
+                    f"FN: {current_row['fn']:,.0f} | TN: {current_row['tn']:,.0f}"
+                )
+                
+                fig.add_trace(go.Scatter(
+                    x=[current_row["threshold"]],
+                    y=[current_row[metric_key]],
+                    mode="markers",
+                    marker=dict(
+                        size=14,
+                        color=marker_color,
+                        symbol="circle",
+                        line=dict(color="white", width=3)
+                    ),
+                    hovertemplate=marker_hover + "<extra></extra>",
+                    showlegend=False,
+                    legendgroup=f"{legend_group_base}_{metric_key}"
+                ))
+            
+            # ═══════════════════════════════════════════════════════════════════════
+            # C) & E) OPTIMAL OPERATING POINT BASED ON DECISION MODE
+            # ═══════════════════════════════════════════════════════════════════════
+            
+            optimal = _find_optimal_threshold_for_mode(thresh_df, decision_mode)
+            optimal_row = thresh_df.loc[optimal["idx"]]
+            
+            # Add star markers at optimal point for each visible metric
+            for metric_key, metric_label, metric_color, is_visible in metric_config:
+                if not is_visible:
+                    continue
+                
+                marker_color = model_color if (overlay_models or analysis_focus != "global") else COLORS["success"]
+                
+                # Optimal point tooltip
+                optimal_hover = (
+                    f"<b>{mode_config['annotation']} — {display_name}</b><br>"
+                    f"Threshold: {optimal_row['threshold']:.3f}<br>"
+                    f"─────────────<br>"
+                    f"Precision: {optimal_row['precision']:.3f}<br>"
+                    f"Recall: {optimal_row['recall']:.3f}<br>"
+                    f"F1: {optimal_row['f1']:.3f}<br>"
+                    f"─────────────<br>"
+                    f"TP: {optimal_row['tp']:,.0f} | FP: {optimal_row['fp']:,.0f}<br>"
+                    f"FN: {optimal_row['fn']:,.0f} | TN: {optimal_row['tn']:,.0f}"
+                )
+                
+                fig.add_trace(go.Scatter(
+                    x=[optimal_row["threshold"]],
+                    y=[optimal_row[metric_key]],
+                    mode="markers",
+                    marker=dict(
+                        size=12,
+                        color=marker_color,
+                        symbol="star",
+                        line=dict(color="white", width=2)
+                    ),
+                    hovertemplate=optimal_hover + "<extra></extra>",
+                    showlegend=False,
+                    legendgroup=f"{legend_group_base}_{metric_key}"
+                ))
+    
+    # Add vertical lines for current threshold and optimal (only once outside the loops)
+    fig.add_vline(
+        x=threshold,
+        line_dash="solid",
+        line_color=COLORS["warning"],
+        line_width=2.5,
+        opacity=0.9
+    )
     
     # ═══════════════════════════════════════════════════════════════════════════
     # D) BALANCED MODE: Highlight F1 peak region
     # ═══════════════════════════════════════════════════════════════════════════
     
     if decision_mode == "balanced" and len(all_model_data) > 0:
-        # Get F1 data from first model
-        first_model = models_to_plot[0]
-        thresh_df = all_model_data[first_model]
+        # Get F1 data from first entry in all_model_data
+        first_key = list(all_model_data.keys())[0]
+        thresh_df = all_model_data[first_key]
         optimal = _find_optimal_threshold_for_mode(thresh_df, "balanced")
         
         # Highlight region around optimal F1 (±0.1)
@@ -995,12 +1045,12 @@ def create_threshold_analysis_enhanced(
     # LAYOUT
     # ═══════════════════════════════════════════════════════════════════════════
     
-    # Build title
+    # Build title with demographic info
     if overlay_models:
-        title_text = f"Metrics vs Threshold (All Models) • Mode: {mode_config['label']}"
+        title_text = f"Metrics vs Threshold{title_demographic} (All Models) • Mode: {mode_config['label']}"
     else:
         model_display = MODEL_NAMES.get(selected_model, selected_model) if selected_model else ""
-        title_text = f"Metrics vs Threshold - {model_display} • Mode: {mode_config['label']}"
+        title_text = f"Metrics vs Threshold{title_demographic} - {model_display} • Mode: {mode_config['label']}"
     
     fig.update_layout(
         title=dict(
@@ -1013,14 +1063,7 @@ def create_threshold_analysis_enhanced(
         yaxis_range=[0, 1.08],
         yaxis_tickformat=".0%",
         height=550 if overlay_models else 480,
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=-0.5 if overlay_models else -0.35,
-            xanchor="center",
-            x=0.5,
-            font=dict(size=9)
-        ),
+        legend=CHART_LEGEND_CONFIG,
         margin=dict(b=180 if overlay_models else 130),
         transition=dict(duration=400, easing="cubic-in-out")
     )
@@ -1147,13 +1190,8 @@ def create_fp_fn_evolution_chart(df: pd.DataFrame, selected_model: str) -> go.Fi
     fig.update_layout(
         title=f"Evolução de Erros vs Threshold - {MODEL_NAMES.get(selected_model, selected_model)}",
         height=380,
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=0.2,
-            xanchor="center",
-            x=0.25
-        ),
+        legend=CHART_LEGEND_CONFIG,
+        margin=dict(b=100),
         transition=dict(duration=500, easing="cubic-in-out")
     )
     
@@ -1269,7 +1307,8 @@ def create_fp_fn_evolution_enhanced(
     selected_model: str,
     threshold: float = 0.5,
     decision_mode: str = "balanced",
-    show_counts: bool = True
+    show_counts: bool = True,
+    analysis_focus: str = "global"
 ) -> go.Figure:
     """
     Enhanced FP/FN Evolution chart with decision-oriented interactions.
@@ -1287,6 +1326,7 @@ def create_fp_fn_evolution_enhanced(
         threshold: Current global threshold value
         decision_mode: "balanced", "precision", or "recall"
         show_counts: True for absolute counts, False for rates
+        analysis_focus: "global", "sex", or "race" - demographic analysis mode
         
     Returns:
         Figura Plotly
@@ -1295,63 +1335,107 @@ def create_fp_fn_evolution_enhanced(
     
     mode_config = FP_FN_DECISION_MODE_CONFIG.get(decision_mode, FP_FN_DECISION_MODE_CONFIG["balanced"])
     
-    model_df = df[df["model"] == selected_model]
-    y_true = model_df["y_true"].values
-    y_proba = model_df["y_proba"].values
-    total_samples = len(model_df)
+    # Configure demographic groups based on analysis focus
+    if analysis_focus == "sex":
+        demographic_groups = [
+            ("Male", df[(df["model"] == selected_model) & (df["sex"] == "Male")], "solid"),
+            ("Female", df[(df["model"] == selected_model) & (df["sex"] == "Female")], "dash")
+        ]
+        title_demographic = " by Sex"
+    elif analysis_focus == "race":
+        demographic_groups = [
+            ("White", df[(df["model"] == selected_model) & (df["race"] == "White")], "solid"),
+            ("Non-White", df[(df["model"] == selected_model) & (df["race"] != "White")], "dash")
+        ]
+        title_demographic = " by Race"
+    else:
+        demographic_groups = [("All Data", df[df["model"] == selected_model], "solid")]
+        title_demographic = ""
+    
+    model_name = MODEL_NAMES.get(selected_model, selected_model)
+    model_color = MODEL_COLORS.get(selected_model, COLORS["primary"])
     
     # Compute error evolution at each threshold
     thresholds = np.linspace(0.1, 0.9, 33)
-    evolution_data = []
     
-    for t in thresholds:
-        y_pred_at_t = (y_proba >= t).astype(int)
-        cm = confusion_matrix(y_true, y_pred_at_t)
+    # Store data and max values for all groups
+    all_group_data = {}
+    max_fp_value = 0
+    max_fn_value = 0
+    
+    for group_name, group_df, line_dash in demographic_groups:
+        if len(group_df) < 10:
+            continue
+            
+        y_true = group_df["y_true"].values
+        y_proba = group_df["y_proba"].values
+        total_samples = len(group_df)
         
-        if cm.shape == (2, 2):
-            tn, fp, fn, tp = cm.ravel()
+        evolution_data = []
+        
+        for t in thresholds:
+            y_pred_at_t = (y_proba >= t).astype(int)
+            cm = confusion_matrix(y_true, y_pred_at_t)
+            
+            if cm.shape == (2, 2):
+                tn, fp, fn, tp = cm.ravel()
+            else:
+                tn, fp, fn, tp = 0, 0, 0, 0
+            
+            # Compute rates
+            fpr = fp / (fp + tn) if (fp + tn) > 0 else 0
+            fnr = fn / (fn + tp) if (fn + tp) > 0 else 0
+            
+            evolution_data.append({
+                "threshold": t,
+                "FP": fp,
+                "FN": fn,
+                "FPR": fpr,
+                "FNR": fnr,
+                "Total Errors": fp + fn,
+                "Error Rate": (fp + fn) / total_samples if total_samples > 0 else 0,
+                "FP_pct": fp / total_samples if total_samples > 0 else 0,
+                "FN_pct": fn / total_samples if total_samples > 0 else 0
+            })
+        
+        evo_df = pd.DataFrame(evolution_data)
+        all_group_data[group_name] = {"df": evo_df, "line_dash": line_dash}
+        
+        # Track max values for layout
+        if show_counts:
+            max_fp_value = max(max_fp_value, evo_df["FP"].max())
+            max_fn_value = max(max_fn_value, evo_df["FN"].max())
         else:
-            tn, fp, fn, tp = 0, 0, 0, 0
-        
-        # Compute rates
-        fpr = fp / (fp + tn) if (fp + tn) > 0 else 0
-        fnr = fn / (fn + tp) if (fn + tp) > 0 else 0
-        
-        evolution_data.append({
-            "threshold": t,
-            "FP": fp,
-            "FN": fn,
-            "FPR": fpr,
-            "FNR": fnr,
-            "Total Errors": fp + fn,
-            "Error Rate": (fp + fn) / total_samples,
-            "FP_pct": fp / total_samples,
-            "FN_pct": fn / total_samples
-        })
+            max_fp_value = max(max_fp_value, evo_df["FPR"].max())
+            max_fn_value = max(max_fn_value, evo_df["FNR"].max())
     
-    evo_df = pd.DataFrame(evolution_data)
-    
-    # Determine which values to plot
+    # Determine label format
     if show_counts:
-        fp_values = evo_df["FP"]
-        fn_values = evo_df["FN"]
         y_label = "Count"
         y_format = ",.0f"
-        fp_label = "False Positives"
-        fn_label = "False Negatives"
+        fp_base_label = "False Positives"
+        fn_base_label = "False Negatives"
+        fp_key = "FP"
+        fn_key = "FN"
     else:
-        fp_values = evo_df["FPR"]
-        fn_values = evo_df["FNR"]
         y_label = "Rate"
         y_format = ".1%"
-        fp_label = "FP Rate"
-        fn_label = "FN Rate"
+        fp_base_label = "FP Rate"
+        fn_base_label = "FN Rate"
+        fp_key = "FPR"
+        fn_key = "FNR"
     
     # ═══════════════════════════════════════════════════════════════════════════
     # D) HIGHLIGHT REGIONS OF HIGH SENSITIVITY
     # ═══════════════════════════════════════════════════════════════════════════
     
-    sensitivity_region = _compute_sensitivity_regions(evo_df, decision_mode)
+    # Use first group's data for sensitivity region
+    first_group = list(all_group_data.keys())[0] if all_group_data else None
+    if first_group:
+        first_evo_df = all_group_data[first_group]["df"]
+        sensitivity_region = _compute_sensitivity_regions(first_evo_df, decision_mode)
+    else:
+        sensitivity_region = {"x0": 0.3, "x1": 0.6}
     
     # Add sensitivity region highlight
     if decision_mode == "precision":
@@ -1364,12 +1448,14 @@ def create_fp_fn_evolution_enhanced(
         region_color = COLORS["secondary"]
         region_label = "High Error Sensitivity"
     
+    max_y_value = max(max_fp_value, max_fn_value) * 1.1
+    
     fig.add_shape(
         type="rect",
         x0=sensitivity_region["x0"],
         x1=sensitivity_region["x1"],
         y0=0,
-        y1=max(fp_values.max(), fn_values.max()) * 1.1 if show_counts else max(fp_values.max(), fn_values.max()) * 1.1,
+        y1=max_y_value,
         fillcolor=region_color,
         opacity=0.1,
         layer="below",
@@ -1378,7 +1464,7 @@ def create_fp_fn_evolution_enhanced(
     
     fig.add_annotation(
         x=(sensitivity_region["x0"] + sensitivity_region["x1"]) / 2,
-        y=max(fp_values.max(), fn_values.max()) * 1.05 if show_counts else max(fp_values.max(), fn_values.max()) * 1.05,
+        y=max_y_value * 0.95,
         text=region_label,
         showarrow=False,
         font=dict(size=9, color=region_color),
@@ -1386,76 +1472,170 @@ def create_fp_fn_evolution_enhanced(
     )
     
     # ═══════════════════════════════════════════════════════════════════════════
-    # B) RICH TOOLTIPS FOR CURVES
+    # PLOT FP AND FN CURVES FOR EACH DEMOGRAPHIC GROUP
     # ═══════════════════════════════════════════════════════════════════════════
     
-    # Build rich hover texts
-    fp_hover_texts = []
-    fn_hover_texts = []
-    
-    for _, row in evo_df.iterrows():
-        fp_hover = (
-            f"<b>False Positives</b><br>"
-            f"Threshold: {row['threshold']:.3f}<br>"
+    for group_name, group_data in all_group_data.items():
+        evo_df = group_data["df"]
+        line_dash = group_data["line_dash"]
+        
+        # Build display name
+        if analysis_focus == "global":
+            fp_label = fp_base_label
+            fn_label = fn_base_label
+        else:
+            fp_label = f"{fp_base_label} ({group_name})"
+            fn_label = f"{fn_base_label} ({group_name})"
+        
+        # Build rich hover texts
+        fp_hover_texts = []
+        fn_hover_texts = []
+        
+        for _, row in evo_df.iterrows():
+            group_info = f" — {group_name}" if analysis_focus != "global" else ""
+            fp_hover = (
+                f"<b>False Positives{group_info}</b><br>"
+                f"Threshold: {row['threshold']:.3f}<br>"
+                f"─────────────<br>"
+                f"FP: {row['FP']:,.0f} ({row['FP_pct']:.1%})<br>"
+                f"FN: {row['FN']:,.0f} ({row['FN_pct']:.1%})<br>"
+                f"─────────────<br>"
+                f"FPR: {row['FPR']:.2%}<br>"
+                f"FNR: {row['FNR']:.2%}<br>"
+                f"Total Errors: {row['Total Errors']:,.0f}"
+            )
+            fn_hover = (
+                f"<b>False Negatives{group_info}</b><br>"
+                f"Threshold: {row['threshold']:.3f}<br>"
+                f"─────────────<br>"
+                f"FP: {row['FP']:,.0f} ({row['FP_pct']:.1%})<br>"
+                f"FN: {row['FN']:,.0f} ({row['FN_pct']:.1%})<br>"
+                f"─────────────<br>"
+                f"FPR: {row['FPR']:.2%}<br>"
+                f"FNR: {row['FNR']:.2%}<br>"
+                f"Total Errors: {row['Total Errors']:,.0f}"
+            )
+            fp_hover_texts.append(fp_hover)
+            fn_hover_texts.append(fn_hover)
+        
+        # Add FP curve
+        fig.add_trace(go.Scatter(
+            x=evo_df["threshold"],
+            y=evo_df[fp_key],
+            mode="lines+markers",
+            name=fp_label,
+            line={"color": COLORS["error"], "width": 2.5, "dash": line_dash},
+            marker={"size": 6, "symbol": "circle"},
+            hovertemplate="%{customdata}<extra></extra>",
+            customdata=fp_hover_texts,
+            legendgroup=f"fp_{group_name}"
+        ))
+        
+        # Add FN curve
+        fig.add_trace(go.Scatter(
+            x=evo_df["threshold"],
+            y=evo_df[fn_key],
+            mode="lines+markers",
+            name=fn_label,
+            line={"color": COLORS["warning"], "width": 2.5, "dash": line_dash},
+            marker={"size": 6, "symbol": "diamond"},
+            hovertemplate="%{customdata}<extra></extra>",
+            customdata=fn_hover_texts,
+            legendgroup=f"fn_{group_name}"
+        ))
+        
+        # ═══════════════════════════════════════════════════════════════════════
+        # A) CURRENT THRESHOLD MARKER (LINKED TO GLOBAL SLIDER)
+        # ═══════════════════════════════════════════════════════════════════════
+        
+        # Find closest threshold in our computed range
+        thresh_idx = np.argmin(np.abs(thresholds - threshold))
+        current_row = evo_df.iloc[thresh_idx]
+        
+        # Current threshold values
+        current_fp = current_row[fp_key]
+        current_fn = current_row[fn_key]
+        
+        # Rich tooltip for current threshold markers
+        group_info = f" — {group_name}" if analysis_focus != "global" else ""
+        current_hover = (
+            f"<b>Current Threshold{group_info}</b><br>"
+            f"Threshold: {current_row['threshold']:.3f}<br>"
             f"─────────────<br>"
-            f"FP: {row['FP']:,.0f} ({row['FP_pct']:.1%})<br>"
-            f"FN: {row['FN']:,.0f} ({row['FN_pct']:.1%})<br>"
+            f"FP: {current_row['FP']:,.0f} ({current_row['FP_pct']:.1%})<br>"
+            f"FN: {current_row['FN']:,.0f} ({current_row['FN_pct']:.1%})<br>"
             f"─────────────<br>"
-            f"FPR: {row['FPR']:.2%}<br>"
-            f"FNR: {row['FNR']:.2%}<br>"
-            f"Total Errors: {row['Total Errors']:,.0f}"
+            f"FPR: {current_row['FPR']:.2%}<br>"
+            f"FNR: {current_row['FNR']:.2%}<br>"
+            f"Total Errors: {current_row['Total Errors']:,.0f}"
         )
-        fn_hover = (
-            f"<b>False Negatives</b><br>"
-            f"Threshold: {row['threshold']:.3f}<br>"
+        
+        # Add markers at current threshold
+        fig.add_trace(go.Scatter(
+            x=[current_row["threshold"]],
+            y=[current_fp],
+            mode="markers",
+            marker=dict(size=14, color=COLORS["error"], symbol="circle", line=dict(color="white", width=3)),
+            hovertemplate=current_hover + "<extra></extra>",
+            showlegend=False,
+            legendgroup=f"fp_{group_name}"
+        ))
+        
+        fig.add_trace(go.Scatter(
+            x=[current_row["threshold"]],
+            y=[current_fn],
+            mode="markers",
+            marker=dict(size=14, color=COLORS["warning"], symbol="diamond", line=dict(color="white", width=3)),
+            hovertemplate=current_hover + "<extra></extra>",
+            showlegend=False,
+            legendgroup=f"fn_{group_name}"
+        ))
+        
+        # ═══════════════════════════════════════════════════════════════════════
+        # C) OPTIMAL OPERATING POINT BASED ON DECISION MODE
+        # ═══════════════════════════════════════════════════════════════════════
+        
+        optimal = _find_optimal_error_threshold(evo_df, decision_mode)
+        
+        # Optimal values for markers
+        optimal_fp = optimal[fp_key] if fp_key in optimal else optimal["FP"]
+        optimal_fn = optimal[fn_key] if fn_key in optimal else optimal["FN"]
+        
+        # Optimal point tooltip
+        optimal_hover = (
+            f"<b>{mode_config['annotation']}{group_info}</b><br>"
+            f"Threshold: {optimal['threshold']:.3f}<br>"
             f"─────────────<br>"
-            f"FP: {row['FP']:,.0f} ({row['FP_pct']:.1%})<br>"
-            f"FN: {row['FN']:,.0f} ({row['FN_pct']:.1%})<br>"
+            f"FP: {optimal['FP']:,.0f}<br>"
+            f"FN: {optimal['FN']:,.0f}<br>"
             f"─────────────<br>"
-            f"FPR: {row['FPR']:.2%}<br>"
-            f"FNR: {row['FNR']:.2%}<br>"
-            f"Total Errors: {row['Total Errors']:,.0f}"
+            f"FPR: {optimal['FPR']:.2%}<br>"
+            f"FNR: {optimal['FNR']:.2%}<br>"
+            f"Total Errors: {optimal['total_errors']:,.0f}"
         )
-        fp_hover_texts.append(fp_hover)
-        fn_hover_texts.append(fn_hover)
+        
+        # Add star markers at optimal point
+        fig.add_trace(go.Scatter(
+            x=[optimal["threshold"]],
+            y=[optimal_fp],
+            mode="markers",
+            marker=dict(size=12, color=COLORS["error"], symbol="star", line=dict(color="white", width=2)),
+            hovertemplate=optimal_hover + "<extra></extra>",
+            showlegend=False,
+            legendgroup=f"fp_{group_name}"
+        ))
+        
+        fig.add_trace(go.Scatter(
+            x=[optimal["threshold"]],
+            y=[optimal_fn],
+            mode="markers",
+            marker=dict(size=12, color=COLORS["warning"], symbol="star", line=dict(color="white", width=2)),
+            hovertemplate=optimal_hover + "<extra></extra>",
+            showlegend=False,
+            legendgroup=f"fn_{group_name}"
+        ))
     
-    # ═══════════════════════════════════════════════════════════════════════════
-    # PLOT FP AND FN CURVES
-    # ═══════════════════════════════════════════════════════════════════════════
-    
-    fig.add_trace(go.Scatter(
-        x=evo_df["threshold"],
-        y=fp_values,
-        mode="lines+markers",
-        name=fp_label,
-        line={"color": COLORS["error"], "width": 2.5},
-        marker={"size": 6, "symbol": "circle"},
-        hovertemplate="%{customdata}<extra></extra>",
-        customdata=fp_hover_texts,
-        legendgroup="fp"
-    ))
-    
-    fig.add_trace(go.Scatter(
-        x=evo_df["threshold"],
-        y=fn_values,
-        mode="lines+markers",
-        name=fn_label,
-        line={"color": COLORS["warning"], "width": 2.5},
-        marker={"size": 6, "symbol": "diamond"},
-        hovertemplate="%{customdata}<extra></extra>",
-        customdata=fn_hover_texts,
-        legendgroup="fn"
-    ))
-    
-    # ═══════════════════════════════════════════════════════════════════════════
-    # A) CURRENT THRESHOLD MARKER (LINKED TO GLOBAL SLIDER)
-    # ═══════════════════════════════════════════════════════════════════════════
-    
-    # Find closest threshold in our computed range
-    thresh_idx = np.argmin(np.abs(thresholds - threshold))
-    current_row = evo_df.iloc[thresh_idx]
-    
-    # Add vertical line for current threshold
+    # Add vertical lines for current threshold and optimal (only once)
     fig.add_vline(
         x=threshold,
         line_dash="solid",
@@ -1464,104 +1644,17 @@ def create_fp_fn_evolution_enhanced(
         opacity=0.9
     )
     
-    # Current threshold values for markers
-    if show_counts:
-        current_fp = current_row["FP"]
-        current_fn = current_row["FN"]
-    else:
-        current_fp = current_row["FPR"]
-        current_fn = current_row["FNR"]
-    
-    # Rich tooltip for current threshold markers
-    current_hover = (
-        f"<b>Current Threshold</b><br>"
-        f"Threshold: {current_row['threshold']:.3f}<br>"
-        f"─────────────<br>"
-        f"FP: {current_row['FP']:,.0f} ({current_row['FP_pct']:.1%})<br>"
-        f"FN: {current_row['FN']:,.0f} ({current_row['FN_pct']:.1%})<br>"
-        f"─────────────<br>"
-        f"FPR: {current_row['FPR']:.2%}<br>"
-        f"FNR: {current_row['FNR']:.2%}<br>"
-        f"Total Errors: {current_row['Total Errors']:,.0f}"
-    )
-    
-    # Add markers at current threshold
-    fig.add_trace(go.Scatter(
-        x=[current_row["threshold"]],
-        y=[current_fp],
-        mode="markers",
-        marker=dict(size=14, color=COLORS["error"], symbol="circle", line=dict(color="white", width=3)),
-        hovertemplate=current_hover + "<extra></extra>",
-        showlegend=False,
-        legendgroup="fp"
-    ))
-    
-    fig.add_trace(go.Scatter(
-        x=[current_row["threshold"]],
-        y=[current_fn],
-        mode="markers",
-        marker=dict(size=14, color=COLORS["warning"], symbol="diamond", line=dict(color="white", width=3)),
-        hovertemplate=current_hover + "<extra></extra>",
-        showlegend=False,
-        legendgroup="fn"
-    ))
-    
-    # ═══════════════════════════════════════════════════════════════════════════
-    # C) OPTIMAL OPERATING POINT BASED ON DECISION MODE
-    # ═══════════════════════════════════════════════════════════════════════════
-    
-    optimal = _find_optimal_error_threshold(evo_df, decision_mode)
-    
-    # Add optimal threshold vertical line (dashed)
-    fig.add_vline(
-        x=optimal["threshold"],
-        line_dash="dash",
-        line_color=COLORS["success"],
-        line_width=2,
-        opacity=0.8
-    )
-    
-    # Optimal values for markers
-    if show_counts:
-        optimal_fp = optimal["FP"]
-        optimal_fn = optimal["FN"]
-    else:
-        optimal_fp = optimal["FPR"]
-        optimal_fn = optimal["FNR"]
-    
-    # Optimal point tooltip
-    optimal_hover = (
-        f"<b>{mode_config['annotation']}</b><br>"
-        f"Threshold: {optimal['threshold']:.3f}<br>"
-        f"─────────────<br>"
-        f"FP: {optimal['FP']:,.0f}<br>"
-        f"FN: {optimal['FN']:,.0f}<br>"
-        f"─────────────<br>"
-        f"FPR: {optimal['FPR']:.2%}<br>"
-        f"FNR: {optimal['FNR']:.2%}<br>"
-        f"Total Errors: {optimal['total_errors']:,.0f}"
-    )
-    
-    # Add star markers at optimal point
-    fig.add_trace(go.Scatter(
-        x=[optimal["threshold"]],
-        y=[optimal_fp],
-        mode="markers",
-        marker=dict(size=12, color=COLORS["success"], symbol="star", line=dict(color="white", width=2)),
-        hovertemplate=optimal_hover + "<extra></extra>",
-        showlegend=False,
-        legendgroup="fp"
-    ))
-    
-    fig.add_trace(go.Scatter(
-        x=[optimal["threshold"]],
-        y=[optimal_fn],
-        mode="markers",
-        marker=dict(size=12, color=COLORS["success"], symbol="star", line=dict(color="white", width=2)),
-        hovertemplate=optimal_hover + "<extra></extra>",
-        showlegend=False,
-        legendgroup="fn"
-    ))
+    # Get optimal from first group for vertical line
+    if first_group:
+        first_evo_df = all_group_data[first_group]["df"]
+        optimal = _find_optimal_error_threshold(first_evo_df, decision_mode)
+        fig.add_vline(
+            x=optimal["threshold"],
+            line_dash="dash",
+            line_color=COLORS["success"],
+            line_width=2,
+            opacity=0.8
+        )
     
     # ═══════════════════════════════════════════════════════════════════════════
     # LEGEND ENTRIES FOR SYMBOLS
@@ -1591,12 +1684,11 @@ def create_fp_fn_evolution_enhanced(
     # LAYOUT
     # ═══════════════════════════════════════════════════════════════════════════
     
-    model_name = MODEL_NAMES.get(selected_model, selected_model)
     mode_suffix = f"{'Counts' if show_counts else 'Rates'} • Mode: {mode_config['label']}"
     
     fig.update_layout(
         title=dict(
-            text=f"Errors vs Threshold - {model_name} • {mode_suffix}",
+            text=f"Errors vs Threshold{title_demographic} - {model_name} • {mode_suffix}",
             x=0.01,
             xanchor="left",
             font=dict(size=14)
@@ -1606,15 +1698,8 @@ def create_fp_fn_evolution_enhanced(
         xaxis_range=[0.08, 0.92],
         yaxis_tickformat=y_format if not show_counts else ",",
         height=420,
-        legend=dict(
-            orientation="h",
-            yanchor="top",
-            y=1.15,
-            xanchor="center",
-            x=0.5,
-            font=dict(size=10)
-        ),
-        margin=dict(t=100, b=60),
+        legend=CHART_LEGEND_CONFIG,
+        margin=dict(t=80, b=100),
         transition=dict(duration=400, easing="cubic-in-out")
     )
     
@@ -2010,14 +2095,7 @@ def create_prediction_distribution_enhanced(
             xaxis_title="",
             yaxis_title="Number of Samples",
             height=400,
-            legend=dict(
-                orientation="h",
-                yanchor="bottom",
-                y=-0.25,
-                xanchor="center",
-                x=0.5,
-                font=dict(size=10)
-            ),
+            legend=CHART_LEGEND_CONFIG,
             margin=dict(t=80, b=100),
             transition=dict(duration=400, easing="cubic-in-out")
         )
@@ -2430,23 +2508,7 @@ def create_parallel_coordinates_operating_points(
         )
     )
     
-    # Add annotation for recommended operating point
-    if recommended is not None:
-        rec_text = (
-            f"★ Recommended: {recommended['model_name']} @ t={recommended['threshold']:.2f}<br>"
-            f"F1={recommended['f1']:.1%}, Prec={recommended['precision']:.1%}, Rec={recommended['recall']:.1%}"
-        )
-        fig.add_annotation(
-            x=0.5, y=1.12,
-            xref="paper", yref="paper",
-            text=rec_text,
-            showarrow=False,
-            font=dict(size=10, color=COLORS["success"]),
-            bgcolor="rgba(34, 197, 94, 0.1)",
-            borderpad=6,
-            bordercolor="rgba(34, 197, 94, 0.3)",
-            borderwidth=1
-        )
+    
     
     # Add decision mode annotation
     fig.add_annotation(

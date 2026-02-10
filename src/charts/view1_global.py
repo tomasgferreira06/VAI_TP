@@ -8,7 +8,7 @@ from sklearn.metrics import roc_curve, auc, accuracy_score, precision_score, rec
 from sklearn.calibration import calibration_curve
 from sklearn.metrics import brier_score_loss
 
-from src.config.settings import COLORS, MODEL_COLORS, MODEL_NAMES, SENSITIVE_COLUMNS
+from src.config.settings import COLORS, MODEL_COLORS, MODEL_NAMES, SENSITIVE_COLUMNS, CHART_LEGEND_CONFIG
 from src.utils.helpers import hex_to_rgba
 from src.models.training import global_metrics, recompute_with_threshold
 
@@ -47,10 +47,10 @@ def compute_subgroup_metrics(df: pd.DataFrame, subgroup: str = "global") -> pd.D
     
     Args:
         df: DataFrame de avaliação
-        subgroup: "global", "Male", "Female", "White", ou nome de outro grupo
+        subgroup: "global", "Male", "Female", "White", "Non-White", "sex", ou "race"
         
     Returns:
-        DataFrame com métricas por modelo
+        DataFrame com métricas por modelo (e por grupo se sex/race)
     """
     if subgroup == "global":
         filtered_df = df
@@ -60,6 +60,9 @@ def compute_subgroup_metrics(df: pd.DataFrame, subgroup: str = "global") -> pd.D
         filtered_df = df[df["race"] == "White"]
     elif subgroup == "Non-White":
         filtered_df = df[df["race"] != "White"]
+    elif subgroup in ["sex", "race"]:
+        # Retornar métricas para ambos os grupos
+        filtered_df = df
     else:
         filtered_df = df
     
@@ -117,140 +120,230 @@ def create_metrics_comparison_chart(
 ) -> go.Figure:
     """
     Gráfico de barras comparando métricas entre modelos com funcionalidades avançadas.
+    Suporta comparação entre subgrupos quando subgroup é "sex" ou "race".
     
     Args:
         df: DataFrame de avaliação
         threshold: Limiar de decisão
         display_mode: "absolute" para valores ou "relative" para diferenças
-        subgroup: Subgrupo para análise ("global", "Male", "Female", "White", "Non-White")
+        subgroup: "global", "sex", ou "race" - define o modo de análise
         decision_mode: Modo de decisão ("balanced", "precision", "recall")
         
     Returns:
         Figura Plotly
     """
     df_thresh = recompute_with_threshold(df, threshold)
-    summary = compute_subgroup_metrics(df_thresh, subgroup)
     
     metrics = ["accuracy", "precision", "recall", "f1"]
     metric_labels = ["Accuracy", "Precision", "Recall", "F1-Score"]
     
-    # Obter valores por modelo
-    model_values = {}
-    for model in summary["model"].unique():
-        model_data = summary[summary["model"] == model]
-        model_values[model] = {m: model_data[m].values[0] for m in metrics}
-    
-    # Identificar vencedor por métrica
-    winners = {}
-    for m in metrics:
-        best_model = max(model_values.keys(), key=lambda x: model_values[x][m])
-        winners[m] = best_model
-    
-    # Detectar disparidades de fairness
-    fairness_alerts = detect_fairness_disparity(df_thresh)
-    
     # Configuração do modo de decisão
     highlighted_metrics = DECISION_MODE_CONFIG.get(decision_mode, {}).get("highlight", metrics)
+    mode_label = DECISION_MODE_CONFIG.get(decision_mode, {}).get("description", "")
     
     fig = go.Figure()
     
-    models = list(summary["model"].unique())
-    
-    for model in models:
-        values = [model_values[model][m] for m in metrics]
-        other_model = [m for m in models if m != model][0] if len(models) > 1 else model
+    # === MODO COMPARAÇÃO POR SUBGRUPO (sex ou race) ===
+    if subgroup in ["sex", "race"]:
+        # Definir grupos a comparar
+        if subgroup == "sex":
+            groups = [("Male", df_thresh[df_thresh["sex"] == "Male"]),
+                     ("Female", df_thresh[df_thresh["sex"] == "Female"])]
+            group_colors = {"Male": "#4A90D9", "Female": "#E91E8C"}  # Azul e Rosa
+        else:  # race
+            groups = [("White", df_thresh[df_thresh["race"] == "White"]),
+                     ("Non-White", df_thresh[df_thresh["race"] != "White"])]
+            group_colors = {"White": "#8B5CF6", "Non-White": "#F59E0B"}  # Roxo e Laranja
         
-        # Calcular diferenças percentuais
-        diffs = []
-        for m in metrics:
-            if display_mode == "relative" and other_model != model:
-                diff = model_values[model][m] - model_values[other_model][m]
-                diffs.append(diff)
-            else:
-                diffs.append(model_values[model][m])
+        models = df_thresh["model"].unique()
         
-        # Criar textos para as barras
-        if display_mode == "relative":
-            bar_texts = [f"{'+' if d > 0 else ''}{d:.1%}" for d in diffs]
-            display_values = diffs
-        else:
-            bar_texts = [f"{v:.1%}" for v in values]
-            display_values = values
+        # Calcular métricas para cada combinação modelo x grupo
+        all_metrics = {}
+        for model in models:
+            all_metrics[model] = {}
+            for group_name, group_df in groups:
+                model_group_df = group_df[group_df["model"] == model]
+                if len(model_group_df) > 0:
+                    all_metrics[model][group_name] = global_metrics(model_group_df)
         
-        # Configurar cores e estilos por barra
-        marker_colors = []
-        marker_line_widths = []
-        marker_line_colors = []
-        opacities = []
+        # Criar barras agrupadas: para cada métrica, mostrar grupos lado a lado por modelo
+        # Layout: Metric -> (LR-Group1, LR-Group2, RF-Group1, RF-Group2)
         
-        for i, m in enumerate(metrics):
+        for model in models:
+            model_name = MODEL_NAMES.get(model, model)
             base_color = MODEL_COLORS.get(model, COLORS["primary"])
-            is_winner = winners[m] == model
-            is_highlighted = m in highlighted_metrics
             
-            # Opacidade baseada no modo de decisão
-            if is_highlighted:
-                opacities.append(1.0)
-            else:
-                opacities.append(0.6)
-            
-            # Highlight do vencedor com outline e glow
-            if is_winner:
-                marker_colors.append(base_color)
-                marker_line_widths.append(3)
-                marker_line_colors.append(COLORS["text_primary"])
-            else:
-                marker_colors.append(base_color)
-                marker_line_widths.append(0)
-                marker_line_colors.append("rgba(0,0,0,0)")
+            for group_name, _ in groups:
+                if group_name not in all_metrics[model]:
+                    continue
+                    
+                group_metrics = all_metrics[model][group_name]
+                values = [group_metrics[m] for m in metrics]
+                
+                # Determinar opacidade baseada no decision mode
+                opacities = [1.0 if m in highlighted_metrics else 0.65 for m in metrics]
+                
+                # Criar hover texts
+                hover_texts = []
+                for i, m in enumerate(metrics):
+                    # Calcular diferença entre grupos para este modelo
+                    other_group = [g for g, _ in groups if g != group_name][0]
+                    if other_group in all_metrics[model]:
+                        other_val = all_metrics[model][other_group][m]
+                        diff = values[i] - other_val
+                        diff_text = f"+{diff:.1%}" if diff > 0 else f"{diff:.1%}"
+                        gap_info = f"<br><span style='color:{COLORS['accent']}'>{diff_text} vs {other_group}</span>"
+                    else:
+                        gap_info = ""
+                    
+                    tooltip = f"<b>{metric_labels[i]}</b><br>"
+                    tooltip += f"Model: {model_name}<br>"
+                    tooltip += f"Group: {group_name}<br>"
+                    tooltip += f"Value: {values[i]:.2%}{gap_info}<br>"
+                    tooltip += f"<br><i style='color:{COLORS['text_muted']}'>{METRIC_EXPLANATIONS.get(m, '')}</i>"
+                    hover_texts.append(tooltip)
+                
+                # Usar padrão de cor: cor do modelo com intensidade variada por grupo
+                # Primeiro grupo: mais escuro, segundo grupo: mais claro
+                if group_name == groups[0][0]:
+                    bar_color = base_color
+                    pattern_shape = ""
+                else:
+                    bar_color = hex_to_rgba(base_color, 0.6)
+                    pattern_shape = "/"
+                
+                fig.add_trace(go.Bar(
+                    name=f"{model_name} ({group_name})",
+                    x=metric_labels,
+                    y=values,
+                    marker=dict(
+                        color=bar_color,
+                        opacity=opacities,
+                        pattern_shape=pattern_shape
+                    ),
+                    text=[f"{v:.1%}" for v in values],
+                    textposition="outside",
+                    textfont={"size": 10, "color": COLORS["text_secondary"]},
+                    hovertemplate="%{customdata}<extra></extra>",
+                    customdata=hover_texts
+                ))
         
-        # Tooltips avançados com explicação didática e comparação
-        hover_texts = []
-        for i, m in enumerate(metrics):
-            other_value = model_values[other_model][m]
-            diff = model_values[model][m] - other_value
-            diff_text = f"+{diff:.1%}" if diff > 0 else f"{diff:.1%}"
-            
-            # Construir tooltip
-            tooltip = f"<b>{metric_labels[i]}</b><br>"
-            tooltip += f"Model: {MODEL_NAMES.get(model, model)}<br>"
-            tooltip += f"Value: {values[i]:.2%}<br>"
-            tooltip += f"<span style='color:{COLORS['accent']}'>{diff_text} vs {MODEL_NAMES.get(other_model, other_model)}</span><br>"
-            tooltip += f"<br><i style='color:{COLORS['text_muted']}'>{METRIC_EXPLANATIONS.get(m, '')}</i>"
-            
-            hover_texts.append(tooltip)
+        # Título para modo comparação
+        group_label = "Sex (Male vs Female)" if subgroup == "sex" else "Race (White vs Non-White)"
+        title_text = f"Metric Comparison by {group_label}"
         
-        fig.add_trace(go.Bar(
-            name=MODEL_NAMES.get(model, model),
-            x=metric_labels,
-            y=display_values if display_mode == "absolute" else [abs(d) for d in diffs],
-            marker=dict(
-                color=marker_colors,
-                line=dict(
-                    width=marker_line_widths,
-                    color=marker_line_colors
+    # === MODO GLOBAL (comportamento original) ===
+    else:
+        summary = compute_subgroup_metrics(df_thresh, subgroup)
+        
+        # Obter valores por modelo
+        model_values = {}
+        for model in summary["model"].unique():
+            model_data = summary[summary["model"] == model]
+            model_values[model] = {m: model_data[m].values[0] for m in metrics}
+        
+        # Identificar vencedor por métrica
+        winners = {}
+        for m in metrics:
+            best_model = max(model_values.keys(), key=lambda x: model_values[x][m])
+            winners[m] = best_model
+        
+        models = list(summary["model"].unique())
+        
+        for model in models:
+            values = [model_values[model][m] for m in metrics]
+            other_model = [m for m in models if m != model][0] if len(models) > 1 else model
+            
+            # Calcular diferenças percentuais
+            diffs = []
+            for m in metrics:
+                if display_mode == "relative" and other_model != model:
+                    diff = model_values[model][m] - model_values[other_model][m]
+                    diffs.append(diff)
+                else:
+                    diffs.append(model_values[model][m])
+            
+            # Criar textos para as barras
+            if display_mode == "relative":
+                bar_texts = [f"{'+' if d > 0 else ''}{d:.1%}" for d in diffs]
+                display_values = diffs
+            else:
+                bar_texts = [f"{v:.1%}" for v in values]
+                display_values = values
+            
+            # Configurar cores e estilos por barra
+            marker_colors = []
+            marker_line_widths = []
+            marker_line_colors = []
+            opacities = []
+            
+            for i, m in enumerate(metrics):
+                base_color = MODEL_COLORS.get(model, COLORS["primary"])
+                is_winner = winners[m] == model
+                is_highlighted = m in highlighted_metrics
+                
+                # Opacidade baseada no modo de decisão
+                if is_highlighted:
+                    opacities.append(1.0)
+                else:
+                    opacities.append(0.6)
+                
+                # Highlight do vencedor com outline
+                if is_winner:
+                    marker_colors.append(base_color)
+                    marker_line_widths.append(3)
+                    marker_line_colors.append(COLORS["text_primary"])
+                else:
+                    marker_colors.append(base_color)
+                    marker_line_widths.append(0)
+                    marker_line_colors.append("rgba(0,0,0,0)")
+            
+            # Tooltips avançados
+            hover_texts = []
+            for i, m in enumerate(metrics):
+                other_value = model_values[other_model][m]
+                diff = model_values[model][m] - other_value
+                diff_text = f"+{diff:.1%}" if diff > 0 else f"{diff:.1%}"
+                
+                tooltip = f"<b>{metric_labels[i]}</b><br>"
+                tooltip += f"Model: {MODEL_NAMES.get(model, model)}<br>"
+                tooltip += f"Value: {values[i]:.2%}<br>"
+                tooltip += f"<span style='color:{COLORS['accent']}'>{diff_text} vs {MODEL_NAMES.get(other_model, other_model)}</span><br>"
+                tooltip += f"<br><i style='color:{COLORS['text_muted']}'>{METRIC_EXPLANATIONS.get(m, '')}</i>"
+                
+                hover_texts.append(tooltip)
+            
+            fig.add_trace(go.Bar(
+                name=MODEL_NAMES.get(model, model),
+                x=metric_labels,
+                y=display_values if display_mode == "absolute" else [abs(d) for d in diffs],
+                marker=dict(
+                    color=marker_colors,
+                    line=dict(
+                        width=marker_line_widths,
+                        color=marker_line_colors
+                    ),
+                    opacity=opacities
                 ),
-                opacity=opacities
-            ),
-            text=bar_texts,
-            textposition="outside",
-            textfont={"size": 11, "color": COLORS["text_secondary"]},
-            hovertemplate="%{customdata}<extra></extra>",
-            customdata=hover_texts
-        ))
+                text=bar_texts,
+                textposition="outside",
+                textfont={"size": 11, "color": COLORS["text_secondary"]},
+                hovertemplate="%{customdata}<extra></extra>",
+                customdata=hover_texts
+            ))
+        
+        # Título para modo global
+        title_suffix = ""
+        if display_mode == "relative":
+            title_suffix = " - Relative Difference"
+        title_text = f"Metric Comparison by Model{title_suffix}"
     
-    # Título dinâmico
-    title_suffix = ""
-    if subgroup != "global":
-        title_suffix = f" ({subgroup})"
-    if display_mode == "relative":
-        title_suffix += " - Relative Difference"
-    
-    mode_label = DECISION_MODE_CONFIG.get(decision_mode, {}).get("description", "")
+    # Título com subtitle integrado de forma clean
+    full_title = f"{title_text}<span style='font-size:11px; color:{COLORS['text_muted']}'> — {mode_label}</span>"
     
     fig.update_layout(
         title=dict(
-            text=f"Metric Comparison by Model{title_suffix}",
+            text=full_title,
             font=dict(size=16)
         ),
         barmode="group",
@@ -259,19 +352,10 @@ def create_metrics_comparison_chart(
         yaxis_range=[0, 1.15] if display_mode == "absolute" else [-0.15, 0.15],
         yaxis_tickformat=".0%",
         showlegend=True,
+        legend=CHART_LEGEND_CONFIG,
         height=400,
-        transition=dict(duration=500, easing="cubic-in-out"),
-        annotations=[
-            # Indicador de modo de decisão (rodapé)
-            dict(
-                x=0.5, y=-0.15,
-                xref="paper", yref="paper",
-                text=f"<i>{mode_label}</i>",
-                showarrow=False,
-                font=dict(size=9, color=COLORS["text_muted"]),
-                xanchor="center"
-            )
-        ]
+        margin=dict(b=100),  # Espaço extra para a legenda no fundo
+        transition=dict(duration=500, easing="cubic-in-out")
     )
     
     return fig
@@ -303,28 +387,66 @@ def get_fairness_warnings(df: pd.DataFrame, threshold: float = 0.5) -> list:
     return warnings
 
 
-def create_roc_curves(df: pd.DataFrame) -> go.Figure:
+def create_roc_curves(
+    df: pd.DataFrame, 
+    analysis_focus: str = "global",
+    model_focus: str = "both"
+) -> go.Figure:
     """
-    Curvas ROC para ambos os modelos com anotações.
+    Curvas ROC com suporte a análise por subgrupo (fairness audit).
     
     Args:
         df: DataFrame de avaliação
+        analysis_focus: "global", "sex", ou "race" - define agrupamento
+        model_focus: "logreg", "rf", ou "both" - modelos a mostrar
         
     Returns:
         Figura Plotly
     """
     fig = go.Figure()
+    warnings = []
+    
+    # Determinar modelos ativos
+    if model_focus == "logreg":
+        active_models = ["logreg"]
+    elif model_focus == "rf":
+        active_models = ["rf"]
+    else:
+        active_models = ["logreg", "rf"]
+    
+    # Filtrar para modelos existentes no dataframe
+    active_models = [m for m in active_models if m in df["model"].unique()]
+    
+    # Configurar subgrupos baseado em analysis_focus
+    if analysis_focus == "sex":
+        subgroups = [
+            ("Male", df["sex"] == "Male", "solid"),
+            ("Female", df["sex"] == "Female", "dash")
+        ]
+        title_text = "ROC Curves by Sex"
+        subtitle_text = "Discriminative performance (TPR vs FPR) across sex groups"
+    elif analysis_focus == "race":
+        subgroups = [
+            ("White", df["race"] == "White", "solid"),
+            ("Non-White", df["race"] != "White", "dash")
+        ]
+        title_text = "ROC Curves by Race"
+        subtitle_text = "Discriminative performance (TPR vs FPR) across race groups"
+    else:  # global
+        subgroups = [("Global", pd.Series([True] * len(df), index=df.index), "solid")]
+        title_text = "ROC Curves"
+        subtitle_text = "Receiver Operating Characteristic — threshold-independent"
     
     # Linha diagonal (random classifier)
     fig.add_trace(go.Scatter(
         x=[0, 1], y=[0, 1],
         mode="lines",
         line={"dash": "dash", "color": COLORS["text_muted"], "width": 1},
-        name="Random Classifier",
+        name="Random (AUC = 0.5)",
         hoverinfo="skip"
     ))
     
-    # Anotação explicativa na diagonal
+    # Anotação na diagonal
     fig.add_annotation(
         x=0.65, y=0.35,
         text="Random Classifier<br>(AUC = 0.5)",
@@ -335,61 +457,108 @@ def create_roc_curves(df: pd.DataFrame) -> go.Figure:
         font=dict(size=9, color=COLORS["text_muted"])
     )
     
-    for model in df["model"].unique():
+    # Plotar curvas para cada modelo e subgrupo
+    for model in active_models:
         model_df = df[df["model"] == model]
-        fpr, tpr, thresholds = roc_curve(model_df["y_true"], model_df["y_proba"])
-        roc_auc = auc(fpr, tpr)
+        model_name = MODEL_NAMES.get(model, model)
+        model_color = MODEL_COLORS.get(model, COLORS["primary"])
         
-        # Calcular métricas adicionais para cada threshold
-        y_true = model_df["y_true"].values
-        y_proba = model_df["y_proba"].values
-        n_total = len(y_true)
-        n_pos = np.sum(y_true)
-        n_neg = n_total - n_pos
-        
-        hover_texts = []
-        for i, (f, t, thresh) in enumerate(zip(fpr, tpr, thresholds)):
-            # Aplicar threshold
-            y_pred = (y_proba >= thresh).astype(int)
+        for subgroup_name, subgroup_mask, line_dash in subgroups:
+            # Aplicar máscara de subgrupo ao modelo
+            subgroup_df = model_df[subgroup_mask[model_df.index]]
             
-            # Calcular TP, FP, TN, FN
-            tp = np.sum((y_true == 1) & (y_pred == 1))
-            fp = np.sum((y_true == 0) & (y_pred == 1))
-            tn = np.sum((y_true == 0) & (y_pred == 0))
-            fn = np.sum((y_true == 1) & (y_pred == 0))
+            if len(subgroup_df) < 10:
+                warnings.append(f"ROC for {model_name} ({subgroup_name}) unavailable (insufficient data)")
+                continue
             
-            # Calcular precision
-            precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+            y_true = subgroup_df["y_true"].values
+            y_proba = subgroup_df["y_proba"].values
             
-            # Construir tooltip
-            tooltip = f"<b>Threshold: {thresh:.3f}</b><br>"
-            tooltip += f"TPR (Recall): {t:.3f}<br>"
-            tooltip += f"FPR: {f:.3f}<br>"
-            tooltip += f"Precision: {precision:.3f}<br>"
-            tooltip += f"FP: {fp} / FN: {fn}"
+            # Verificar se há ambas as classes
+            n_pos = np.sum(y_true)
+            n_neg = len(y_true) - n_pos
             
-            hover_texts.append(tooltip)
-        
-        fig.add_trace(go.Scatter(
-            x=fpr, y=tpr,
-            mode="lines",
-            name=f"{MODEL_NAMES.get(model, model)} (AUC = {roc_auc:.3f})",
-            line={"color": MODEL_COLORS.get(model, COLORS["primary"]), "width": 2.5},
-            fill="tozeroy",
-            fillcolor=hex_to_rgba(MODEL_COLORS.get(model, COLORS["primary"]), 0.15),
-            hovertemplate="%{customdata}<extra></extra>",
-            customdata=hover_texts
+            if n_pos == 0 or n_neg == 0:
+                warnings.append(f"ROC for {model_name} ({subgroup_name}) unavailable (insufficient class variety)")
+                continue
+            
+            # Calcular ROC
+            fpr, tpr, thresholds = roc_curve(y_true, y_proba)
+            roc_auc = auc(fpr, tpr)
+            
+            # Criar hover texts
+            hover_texts = []
+            for i, (f, t, thresh) in enumerate(zip(fpr, tpr, thresholds)):
+                y_pred = (y_proba >= thresh).astype(int)
+                tp = np.sum((y_true == 1) & (y_pred == 1))
+                fp = np.sum((y_true == 0) & (y_pred == 1))
+                precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+                
+                tooltip = f"<b>{model_name}</b>"
+                if subgroup_name != "Global":
+                    tooltip += f" ({subgroup_name})"
+                tooltip += f"<br>Threshold: {thresh:.3f}<br>"
+                tooltip += f"TPR (Recall): {t:.3f}<br>"
+                tooltip += f"FPR: {f:.3f}<br>"
+                tooltip += f"Precision: {precision:.3f}<br>"
+                tooltip += f"AUC: {roc_auc:.3f}"
+                
+                hover_texts.append(tooltip)
+            
+            # Construir nome para legenda
+            if subgroup_name == "Global":
+                legend_name = f"{model_name} (AUC = {roc_auc:.3f})"
+            else:
+                legend_name = f"{model_name} ({subgroup_name}) — AUC: {roc_auc:.3f}"
+            
+            # Determinar se usar fill (apenas em modo global)
+            use_fill = analysis_focus == "global"
+            
+            fig.add_trace(go.Scatter(
+                x=fpr, y=tpr,
+                mode="lines",
+                name=legend_name,
+                line={
+                    "color": model_color, 
+                    "width": 2.5,
+                    "dash": line_dash if analysis_focus != "global" else "solid"
+                },
+                fill="tozeroy" if use_fill else None,
+                fillcolor=hex_to_rgba(model_color, 0.12) if use_fill else None,
+                hovertemplate="%{customdata}<extra></extra>",
+                customdata=hover_texts
+            ))
+    
+    # Configurar layout
+    annotations = []
+    
+    # Adicionar warnings se existirem
+    if warnings:
+        warning_text = "<br>".join(warnings)
+        annotations.append(dict(
+            x=0.02, y=0.02,
+            xref="paper", yref="paper",
+            text=f"<span style='color:{COLORS['warning']}'>⚠ {warning_text}</span>",
+            showarrow=False,
+            font=dict(size=8, color=COLORS["warning"]),
+            xanchor="left", yanchor="bottom",
+            bgcolor="rgba(0,0,0,0.5)"
         ))
     
+    # Título com subtitle integrado de forma clean
+    full_title = f"{title_text}<span style='font-size:11px; color:{COLORS['text_muted']}'> — {subtitle_text}</span>"
+    
     fig.update_layout(
-        title="ROC Curves",
-        xaxis_title="False Positive Rate",
+        title=dict(text=full_title, font=dict(size=16)),
+        xaxis=dict(title=dict(text="False Positive Rate", standoff=6)),
         yaxis_title="True Positive Rate",
         xaxis_range=[0, 1],
         yaxis_range=[0, 1.02],
         height=400,
-        legend={"yanchor": "bottom", "y": 0.02, "xanchor": "right", "x": 0.98},
-        transition=dict(duration=500, easing="cubic-in-out")
+        legend=CHART_LEGEND_CONFIG,
+        margin=dict(b=60),  # Espaço extra para a legenda no fundo
+        transition=dict(duration=500, easing="cubic-in-out"),
+        annotations=annotations
     )
     
     return fig
@@ -469,7 +638,8 @@ def create_calibration_plot(eval_df: pd.DataFrame) -> go.Figure:
         xaxis_range=[0, 1],
         yaxis_range=[0, 1.02],
         height=400,
-        legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.55),
+        legend=CHART_LEGEND_CONFIG,
+        margin=dict(b=100),  # Espaço extra para a legenda no fundo
         transition=dict(duration=500, easing="cubic-in-out")
     )
     
@@ -801,9 +971,13 @@ def create_advanced_calibration_plot(
     if subgroup != "global" and subgroup_value:
         title_suffix = f" ({subgroup_value})"
     
+    # Nota de rodapé integrada no título
+
+    full_title = f"Calibration Plot (Reliability Diagram){title_suffix}<span style='font-size:11px; color:{COLORS['text_muted']}'></span>"
+    
     fig.update_layout(
         title=dict(
-            text=f"Calibration Plot (Reliability Diagram){title_suffix}",
+            text=full_title,
             font=dict(size=16)
         ),
         xaxis_title="Probabilidade Prevista (média do bin)",
@@ -811,25 +985,9 @@ def create_advanced_calibration_plot(
         xaxis_range=[0, 1],
         yaxis_range=[0, 1.05],
         height=420,
-        legend=dict(
-            yanchor="top", y=0.99,
-            xanchor="left", x=0.02,
-            bgcolor="rgba(0,0,0,0.3)",
-            font=dict(size=10)
-        ),
-        margin=dict(b=80),
-        transition=dict(duration=500, easing="cubic-in-out"),
-        annotations=[
-            # Nota de rodapé
-            dict(
-                x=0.5, y=-0.25,
-                xref="paper", yref="paper",
-                text=f"<i>Bins: {n_bins} | Erro threshold: {error_threshold:.0%} | Marcadores destacados indicam |erro| > threshold</i>",
-                showarrow=False,
-                font=dict(size=9, color=COLORS["text_muted"]),
-                xanchor="center"
-            )
-        ]
+        legend=CHART_LEGEND_CONFIG,
+        margin=dict(b=100),  # Espaço extra para a legenda no fundo
+        transition=dict(duration=500, easing="cubic-in-out")
     )
     
     return fig, insight_text
@@ -983,13 +1141,8 @@ def create_calibration_subgroup_comparison(
         xaxis_range=[0, 1],
         yaxis_range=[0, 1.05],
         height=420,
-        legend=dict(
-            yanchor="top", y=0.99,
-            xanchor="left", x=0.02,
-            bgcolor="rgba(0,0,0,0.3)",
-            font=dict(size=10)
-        ),
-        margin=dict(b=60),
+        legend=CHART_LEGEND_CONFIG,
+        margin=dict(b=100),  # Espaço extra para a legenda no fundo
         transition=dict(duration=500, easing="cubic-in-out")
     )
     

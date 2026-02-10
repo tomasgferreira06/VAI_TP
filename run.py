@@ -78,7 +78,7 @@ def main():
     print()
     
     # Executar
-    app.run(debug=True, port=8050, dev_tools_hot_reload=True)
+    app.run(debug=True, port=8060, dev_tools_hot_reload=True)
 
 
 if __name__ == "__main__":

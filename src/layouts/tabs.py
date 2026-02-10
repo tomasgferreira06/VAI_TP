@@ -40,31 +40,6 @@ def create_metrics_controls() -> html.Div:
                     ),
                 ], size="sm")
             ], width="auto"),
-            
-            # Subgroup selector
-            dbc.Col([
-                html.Label("Subgroup", style={
-                    "fontSize": "0.7rem",
-                    "color": COLORS["text_muted"],
-                    "textTransform": "uppercase",
-                    "letterSpacing": "0.05em",
-                    "marginBottom": "0.25rem",
-                    "display": "block"
-                }),
-                dcc.Dropdown(
-                    id="subgroup-selector",
-                    options=[
-                        {"label": "Global", "value": "global"},
-                        {"label": "Male", "value": "Male"},
-                        {"label": "Female", "value": "Female"},
-                        {"label": "White", "value": "White"},
-                        {"label": "Non-White", "value": "Non-White"},
-                    ],
-                    value="global",
-                    clearable=False,
-                    style={"minWidth": "120px", "fontSize": "0.85rem"}
-                )
-            ], width="auto"),
         ], className="g-3 align-items-end", justify="start"),
         
         # Stores para os estados
@@ -97,29 +72,6 @@ def create_calibration_controls() -> html.Div:
                     dbc.Button("10", id="btn-bins-10", color="primary", outline=False, size="sm"),
                     dbc.Button("20", id="btn-bins-20", color="primary", outline=True, size="sm"),
                 ], size="sm")
-            ], width="auto"),
-            
-            # Subgroup Mode
-            dbc.Col([
-                html.Label("Subgroup", style={
-                    "fontSize": "0.7rem",
-                    "color": COLORS["text_muted"],
-                    "textTransform": "uppercase",
-                    "letterSpacing": "0.05em",
-                    "marginBottom": "0.25rem",
-                    "display": "block"
-                }),
-                dcc.Dropdown(
-                    id="calib-subgroup-selector",
-                    options=[
-                        {"label": "Global", "value": "global"},
-                        {"label": "By Sex", "value": "sex"},
-                        {"label": "By Race", "value": "race"},
-                    ],
-                    value="global",
-                    clearable=False,
-                    style={"minWidth": "110px", "fontSize": "0.85rem"}
-                )
             ], width="auto"),
             
             # Error Threshold
@@ -161,7 +113,7 @@ def create_tab_global() -> html.Div:
         # Metrics Cards Row
         html.Div(id="metrics-cards-row", style={"marginBottom": "1.5rem"}),
         
-        # Charts Row 1: Métricas + ROC
+        # Row 1: Metric Comparison
         dbc.Row([
             dbc.Col([
                 html.Div([
@@ -174,7 +126,11 @@ def create_tab_global() -> html.Div:
                     # Gráfico
                     dcc.Graph(id="metrics-comparison-chart", config={"displayModeBar": False})
                 ], className="dashboard-card")
-            ], lg=6),
+            ], lg=12)
+        ], style={"marginBottom": "1.5rem"}),
+        
+        # Row 2: ROC Curves
+        dbc.Row([
             dbc.Col([
                 html.Div([
                     create_section_header(
@@ -183,10 +139,10 @@ def create_tab_global() -> html.Div:
                     ),
                     dcc.Graph(id="roc-curves-chart", config={"displayModeBar": False})
                 ], className="dashboard-card")
-            ], lg=6)
+            ], lg=12)
         ], style={"marginBottom": "1.5rem"}),
         
-        # Charts Row 2: Calibration Plot with Advanced Controls
+        # Row 3: Calibration Plot with Advanced Controls
         dbc.Row([
             dbc.Col([
                 html.Div([
@@ -353,32 +309,9 @@ def create_pcp_controls() -> html.Div:
     """Cria os controlos para o Parallel Coordinates Plot."""
     return html.Div([
         dbc.Row([
-            # Subgroup Mode
+            # Distinguish by (formerly Color By)
             dbc.Col([
-                html.Label("Subgroup Analysis", style={
-                    "fontSize": "0.7rem",
-                    "color": COLORS["text_muted"],
-                    "textTransform": "uppercase",
-                    "letterSpacing": "0.05em",
-                    "marginBottom": "0.25rem",
-                    "display": "block"
-                }),
-                dcc.Dropdown(
-                    id="pcp-subgroup-mode",
-                    options=[
-                        {"label": "Global", "value": "Global"},
-                        {"label": "By Sex", "value": "Sex"},
-                        {"label": "By Race", "value": "Race"},
-                    ],
-                    value="Global",
-                    clearable=False,
-                    style={"minWidth": "110px", "fontSize": "0.85rem"}
-                )
-            ], width="auto"),
-            
-            # Color By
-            dbc.Col([
-                html.Label("Color By", style={
+                html.Label("Distinguish by", style={
                     "fontSize": "0.7rem",
                     "color": COLORS["text_muted"],
                     "textTransform": "uppercase",
@@ -389,7 +322,7 @@ def create_pcp_controls() -> html.Div:
                 dbc.RadioItems(
                     options=[
                         {"label": " Model", "value": "model"},
-                        {"label": " Subgroup", "value": "subgroup"},
+                        {"label": " Feature", "value": "subgroup"},
                     ],
                     value="model",
                     id="pcp-color-by",
@@ -455,7 +388,7 @@ def create_tab_tradeoffs() -> html.Div:
             "marginBottom": "1.5rem"
         }),
         
-        # Row 1: PR Curve + Threshold Analysis
+        # Row 1: PR Curve
         dbc.Row([
             dbc.Col([
                 html.Div([
@@ -481,7 +414,11 @@ def create_tab_tradeoffs() -> html.Div:
                         }
                     )
                 ], className="dashboard-card")
-            ], lg=6),
+            ], lg=12)
+        ], style={"marginBottom": "1.5rem"}),
+        
+        # Row 2: Threshold Analysis
+        dbc.Row([
             dbc.Col([
                 html.Div([
                     create_section_header(
@@ -493,10 +430,10 @@ def create_tab_tradeoffs() -> html.Div:
                     # Threshold Analysis Chart
                     dcc.Graph(id="threshold-analysis-chart", config={"displayModeBar": False})
                 ], className="dashboard-card")
-            ], lg=6)
+            ], lg=12)
         ], style={"marginBottom": "1.5rem"}),
         
-        # Row 2: Evolução de FP/FN
+        # Row 3: Evolução de FP/FN
         dbc.Row([
             dbc.Col([
                 html.Div([
@@ -588,7 +525,7 @@ def create_tab_errors() -> html.Div:
             dbc.Col([
                 html.Div([
                     create_section_header(
-                        "Interactive Confusion Matrix",
+                        "Confusion Matrix",
                         "Explore error patterns across thresholds and models — hover cells for diagnostics"
                     ),
                     
@@ -613,23 +550,6 @@ def create_tab_errors() -> html.Div:
                                 ], size="sm")
                             ], width="auto"),
                             
-                            # Comparison Mode
-                            dbc.Col([
-                                html.Label("View Mode", style={
-                                    "fontSize": "0.7rem",
-                                    "color": COLORS["text_muted"],
-                                    "textTransform": "uppercase",
-                                    "letterSpacing": "0.05em",
-                                    "marginBottom": "0.25rem",
-                                    "display": "block"
-                                }),
-                                dbc.ButtonGroup([
-                                    dbc.Button("Single", id="btn-cm-single", color="primary", outline=False, size="sm"),
-                                    dbc.Button("Compare", id="btn-cm-compare", color="primary", outline=True, size="sm"),
-                                    dbc.Button("Delta", id="btn-cm-delta", color="primary", outline=True, size="sm"),
-                                ], size="sm")
-                            ], width="auto"),
-                            
                             # Info Tooltip
                             dbc.Col([
                                 html.Div([
@@ -639,8 +559,7 @@ def create_tab_errors() -> html.Div:
                                         style={
                                             "fontSize": "1rem",
                                             "color": COLORS["primary_light"],
-                                            "cursor": "pointer",
-                                            "marginTop": "1.5rem"
+                                            "cursor": "pointer"
                                         }
                                     ),
                                     dbc.Tooltip(
@@ -650,10 +569,9 @@ def create_tab_errors() -> html.Div:
                                             "• % Total: Cell as % of dataset", html.Br(),
                                             "• % Row: TPR/FPR/TNR/FNR rates", html.Br(),
                                             "• % Col: Precision/NPV rates", html.Br(), html.Br(),
-                                            html.B("View Modes:"), html.Br(),
-                                            "• Single: Selected model only", html.Br(),
-                                            "• Compare: Side-by-side LR vs RF", html.Br(),
-                                            "• Delta: Difference (RF − LR)"
+                                            html.B("Model Focus:"), html.Br(),
+                                            "• Single model: Shows one matrix", html.Br(),
+                                            "• Both: Side-by-side comparison"
                                         ],
                                         target="cm-info-icon",
                                         placement="right",
@@ -663,9 +581,8 @@ def create_tab_errors() -> html.Div:
                             ], width="auto"),
                         ], className="g-3 align-items-end", justify="start"),
                         
-                        # Stores for confusion matrix state
+                        # Store for confusion matrix normalization state
                         dcc.Store(id="cm-norm-mode-store", data="counts"),
-                        dcc.Store(id="cm-comparison-mode-store", data="single"),
                         
                     ], style={
                         "background": f"{COLORS['bg_hover']}44",
@@ -686,7 +603,8 @@ def create_tab_errors() -> html.Div:
                             "color": COLORS["text_muted"],
                             "fontStyle": "italic",
                             "textAlign": "center",
-                            "marginTop": "0.5rem"
+                            "marginTop": "0.25rem",
+                            "paddingBottom": "0.25rem"
                         }
                     )
                 ], className="dashboard-card")
@@ -698,44 +616,9 @@ def create_tab_errors() -> html.Div:
             dbc.Col([
                 html.Div([
                     create_section_header(
-                        "Error Trade-off Trajectories",
+                        "Connected Bubble Scatter Plot - Error Trade-off Trajectories",
                         "FPR vs FNR as threshold changes — dynamic behavior as static trajectories"
                     ),
-                    
-                    # Controls for error tradeoff scatter
-                    html.Div([
-                        dbc.Row([
-                            # Subgroup selector
-                            dbc.Col([
-                                html.Label("Subgroup", style={
-                                    "fontSize": "0.7rem",
-                                    "color": COLORS["text_muted"],
-                                    "textTransform": "uppercase",
-                                    "letterSpacing": "0.05em",
-                                    "marginBottom": "0.25rem",
-                                    "display": "block"
-                                }),
-                                dcc.Dropdown(
-                                    id="error-tradeoff-subgroup",
-                                    options=[
-                                        {"label": "Global", "value": "global"},
-                                        {"label": "Male", "value": "Male"},
-                                        {"label": "Female", "value": "Female"},
-                                        {"label": "White", "value": "White"},
-                                        {"label": "Non-White", "value": "Non-White"},
-                                    ],
-                                    value="global",
-                                    clearable=False,
-                                    style={"minWidth": "130px", "fontSize": "0.85rem"}
-                                )
-                            ], width="auto"),
-                        ], className="g-3 align-items-end", justify="start"),
-                    ], style={
-                        "background": f"{COLORS['bg_hover']}44",
-                        "borderRadius": "8px",
-                        "padding": "0.75rem 1rem",
-                        "marginBottom": "1rem"
-                    }),
                     
                     # Error tradeoff scatter chart
                     dcc.Graph(id="error-tradeoff-chart", config={"displayModeBar": False}),
@@ -750,9 +633,8 @@ def create_tab_errors() -> html.Div:
                             "color": COLORS["text_muted"],
                             "fontStyle": "italic",
                             "textAlign": "center",
-                            "marginTop": "0.5rem",
-                            "maxWidth": "700px",
-                            "margin": "0.5rem auto 0"
+                            "marginTop": "0.25rem",
+                            "paddingBottom": "0.25rem"
                         }
                     )
                 ], className="dashboard-card")
@@ -906,41 +788,6 @@ def create_tab_fairness() -> html.Div:
                 ], className="dashboard-card")
             ], lg=12)
         ], style={"marginBottom": "1.5rem"}),
-
-        # Main Fairness Charts
-        dbc.Row([
-            dbc.Col([
-                html.Div([
-                    create_section_header(
-                        "Accuracy by Group",
-                        "Model accuracy across demographic subgroups"
-                    ),
-                    dcc.Graph(id="fairness-accuracy-chart", config={"displayModeBar": False})
-                ], className="dashboard-card")
-            ], lg=6),
-            dbc.Col([
-                html.Div([
-                    create_section_header(
-                        "Accuracy Disparity",
-                        "Gap between best and worst performing groups per model"
-                    ),
-                    dcc.Graph(id="fairness-disparity-chart", config={"displayModeBar": False})
-                ], className="dashboard-card")
-            ], lg=6)
-        ], style={"marginBottom": "1.5rem"}),
-        
-        # Error Rates by Group
-        dbc.Row([
-            dbc.Col([
-                html.Div([
-                    create_section_header(
-                        "Error Rates by Group",
-                        "False positive and false negative rates across demographic subgroups"
-                    ),
-                    dcc.Graph(id="fairness-rates-chart", config={"displayModeBar": False})
-                ], className="dashboard-card")
-            ], lg=12)
-        ]),
         
         # Sunburst - Hierarchical Error Distribution
         dbc.Row([

@@ -20,7 +20,28 @@ def create_header():
             dbc.Row([
                 dbc.Col([
                     html.Div([
-                        html.H1("Model Evaluation Dashboard", className="main-title"),
+                        html.Div([
+                            html.H1("Model Evaluation Dashboard", className="main-title", style={"display": "inline"}),
+                            html.I(
+                                className="bi bi-info-circle",
+                                id="dashboard-info-icon",
+                                style={
+                                    "fontSize": "1rem",
+                                    "color": COLORS["primary_light"],
+                                    "cursor": "pointer",
+                                    "marginLeft": "0.5rem",
+                                    "verticalAlign": "middle"
+                                }
+                            ),
+                            dbc.Tooltip(
+                                "Adult Income Dataset (UCI) — Binary classification task (>50K vs ≤50K) based on "
+                                "sociodemographic and professional attributes. The dataset is imbalanced (majority ≤50K), "
+                                "so it is important to analyze metrics beyond accuracy and explore the impact of the "
+                                "decision threshold on errors and fairness.",
+                                target="dashboard-info-icon",
+                                placement="bottom"
+                            )
+                        ], style={"display": "flex", "alignItems": "center"}),
                         html.P(
                             "A Comparative Study of Classification Models Beyond Overall Accuracy",
                             className="subtitle"
@@ -107,16 +128,21 @@ def create_controls_sidebar(test_samples: int, positive_rate: float):
                 )
             ], style={"marginBottom": "2rem"}),
             
-            # Sensitive Column Selector (for Fairness)
+            # Analysis Focus (unified control for all views)
             html.Div([
-                html.Label("Fairness Attribute", className="control-label"),
+                html.Label("Analysis Focus", className="control-label"),
+                html.P(
+                    "Global or by demographic group",
+                    style={"fontSize": "0.7rem", "color": COLORS["text_muted"], "margin": "0.25rem 0 0.5rem 0"}
+                ),
                 dcc.Dropdown(
                     id="sensitive-selector",
                     options=[
+                        {"label": "Global (All Data)", "value": "global"},
                         {"label": "Sex", "value": "sex"},
                         {"label": "Race", "value": "race"}
                     ],
-                    value="sex",
+                    value="global",
                     clearable=False,
                     style={"marginTop": "0.5rem"}
                 )
@@ -207,15 +233,6 @@ def create_controls_sidebar(test_samples: int, positive_rate: float):
                         html.Div("LR vs RF", style={"fontWeight": "600", "fontSize": "1.1rem"})
                     ], style={"marginTop": "0.75rem"})
                 ], style={"marginTop": "0.75rem"})
-            ]),
-            
-            # Indicador de seleção (linked brushing)
-            html.Div([
-                html.Div(className="divider"),
-                html.Label("Selection", className="control-label"),
-                html.Div(id="selection-info", children=[
-                    html.Span("No selection", style={"color": COLORS["text_muted"], "fontSize": "0.8rem"})
-                ], style={"marginTop": "0.5rem"})
             ])
         ], className="dashboard-card", style={"height": "100%"})
     ], style={"position": "sticky", "top": "1rem"})

@@ -14,7 +14,7 @@ from sklearn.metrics import (
 from src.config.settings import COLORS, MODEL_NAMES, MODEL_COLORS
 from src.models.training import global_metrics, recompute_with_threshold
 from src.components.cards import create_metric_card
-from src.utils.helpers import hex_to_rgba
+from src.utils.helpers import hex_to_rgba, get_demographic_groups
 from src.charts import (
     create_metrics_comparison_chart,
     create_roc_curves,
@@ -36,9 +36,6 @@ from src.charts import (
     create_advanced_confusion_matrix,
     create_error_rates_comparison,
     create_error_tradeoff_scatter,
-    create_fairness_accuracy_chart,
-    create_fairness_rates_chart,
-    create_fairness_disparity_chart,
     create_fairness_horizon_chart,
     create_fairness_sunburst,
     HORIZON_METRIC_CONFIG
@@ -65,97 +62,170 @@ def register_callbacks(app, eval_df: pd.DataFrame, pipelines: dict, cat_cols: li
         Output("metrics-cards-row", "children"),
         [Input("threshold-slider", "value"),
          Input("model-selector", "value"),
-         Input("subgroup-selector", "value")]
+         Input("sensitive-selector", "value")]
     )
-    def update_metrics_cards(threshold, selected_model, subgroup):
-        """Atualiza os cards de métricas."""
+    def update_metrics_cards(threshold, selected_model, analysis_focus):
+        """Atualiza os cards de métricas com suporte a comparação por subgrupo."""
         df = recompute_with_threshold(eval_df, threshold)
-        
-        # Filtrar por subgrupo
-        if subgroup == "global":
-            filtered_df = df
-        elif subgroup in ["Male", "Female"]:
-            filtered_df = df[df["sex"] == subgroup]
-        elif subgroup == "White":
-            filtered_df = df[df["race"] == "White"]
-        elif subgroup == "Non-White":
-            filtered_df = df[df["race"] != "White"]
-        else:
-            filtered_df = df
-        
-        # Handle "both" mode - show both models with clean design
-        if selected_model == "both":
-            cards = [
-                ("accuracy", "Accuracy", COLORS["warning"]),
-                ("precision", "Precision", COLORS["secondary"]),
-                ("recall", "Recall", COLORS["error"]),
-                ("f1", "F1-Score", "#A78BFA")  # Purple
-            ]
-            
-            model_sections = []
-            for model_key, model_label in [("logreg", "Logistic Regression"), ("rf", "Random Forest")]:
-                model_df = filtered_df[filtered_df["model"] == model_key]
-                metrics = global_metrics(model_df)
-                model_color = MODEL_COLORS.get(model_key, COLORS["primary"])
-                
-                # Clean model section with colored accent
-                model_section = html.Div([
-                    # Simple colored bar + model name
-                    html.Div([
-                        html.Div(style={
-                            "width": "4px",
-                            "height": "20px",
-                            "background": model_color,
-                            "borderRadius": "2px",
-                            "marginRight": "0.75rem"
-                        }),
-                        html.Span(model_label, style={
-                            "fontSize": "0.95rem",
-                            "fontWeight": "600",
-                            "color": COLORS["text_primary"]
-                        })
-                    ], style={
-                        "display": "flex",
-                        "alignItems": "center",
-                        "marginBottom": "0.75rem"
-                    }),
-                    # Metrics cards
-                    dbc.Row([
-                        dbc.Col([
-                            create_metric_card(metrics[metric], label, color)
-                        ], md=3, sm=6)
-                        for metric, label, color in cards
-                    ], className="g-3")
-                ], style={
-                    "marginBottom": "2rem",
-                    "paddingBottom": "1.5rem",
-                    "borderBottom": f"1px solid {COLORS['border']}"
-                })
-                
-                model_sections.append(model_section)
-            
-            # Remove border from last section
-            if model_sections:
-                model_sections[-1].style["borderBottom"] = "none"
-            
-            return html.Div(model_sections)
-            
-        model_df = filtered_df[filtered_df["model"] == selected_model]
-        metrics = global_metrics(model_df)
         
         cards = [
             ("accuracy", "Accuracy", COLORS["warning"]),
             ("precision", "Precision", COLORS["secondary"]),
             ("recall", "Recall", COLORS["error"]),
-            ("f1", "F1-Score", "#FAC68B")  # Purple
+            ("f1", "F1-Score", "#A78BFA")  # Purple
         ]
         
-        return dbc.Row([
-            dbc.Col([
-                create_metric_card(metrics[metric], label, color)
-            ], md=3, sm=6, style={"marginBottom": "1rem"})
-            for metric, label, color in cards
-        ])
+        # Determinar grupos a mostrar
+        if analysis_focus == "global":
+            groups = [("Global", df)]
+        elif analysis_focus == "sex":
+            groups = [
+                ("Male", df[df["sex"] == "Male"]),
+                ("Female", df[df["sex"] == "Female"])
+            ]
+        elif analysis_focus == "race":
+            groups = [
+                ("White", df[df["race"] == "White"]),
+                ("Non-White", df[df["race"] != "White"])
+            ]
+        else:
+            groups = [("Global", df)]
+        
+        # Handle "both" mode - show both models
+        if selected_model == "both":
+            all_sections = []
+            
+            for model_key, model_label in [("logreg", "Logistic Regression"), ("rf", "Random Forest")]:
+                model_color = MODEL_COLORS.get(model_key, COLORS["primary"])
+                
+                # Se temos múltiplos grupos, mostrar comparação
+                if len(groups) > 1:
+                    group_rows = []
+                    for group_name, group_df in groups:
+                        model_df = group_df[group_df["model"] == model_key]
+                        metrics = global_metrics(model_df)
+                        
+                        group_rows.append(
+                            html.Div([
+                                html.Span(group_name, style={
+                                    "fontSize": "0.8rem",
+                                    "color": COLORS["text_muted"],
+                                    "marginBottom": "0.5rem",
+                                    "display": "block"
+                                }),
+                                dbc.Row([
+                                    dbc.Col([
+                                        create_metric_card(metrics[metric], label, color)
+                                    ], md=3, sm=6)
+                                    for metric, label, color in cards
+                                ], className="g-2")
+                            ], style={"marginBottom": "1rem"})
+                        )
+                    
+                    model_section = html.Div([
+                        html.Div([
+                            html.Div(style={
+                                "width": "4px",
+                                "height": "20px",
+                                "background": model_color,
+                                "borderRadius": "2px",
+                                "marginRight": "0.75rem"
+                            }),
+                            html.Span(model_label, style={
+                                "fontSize": "0.95rem",
+                                "fontWeight": "600",
+                                "color": COLORS["text_primary"]
+                            })
+                        ], style={
+                            "display": "flex",
+                            "alignItems": "center",
+                            "marginBottom": "0.75rem"
+                        }),
+                        html.Div(group_rows)
+                    ], style={
+                        "marginBottom": "2rem",
+                        "paddingBottom": "1.5rem",
+                        "borderBottom": f"1px solid {COLORS['border']}"
+                    })
+                else:
+                    # Modo global - layout original
+                    model_df = groups[0][1][groups[0][1]["model"] == model_key]
+                    metrics = global_metrics(model_df)
+                    
+                    model_section = html.Div([
+                        html.Div([
+                            html.Div(style={
+                                "width": "4px",
+                                "height": "20px",
+                                "background": model_color,
+                                "borderRadius": "2px",
+                                "marginRight": "0.75rem"
+                            }),
+                            html.Span(model_label, style={
+                                "fontSize": "0.95rem",
+                                "fontWeight": "600",
+                                "color": COLORS["text_primary"]
+                            })
+                        ], style={
+                            "display": "flex",
+                            "alignItems": "center",
+                            "marginBottom": "0.75rem"
+                        }),
+                        dbc.Row([
+                            dbc.Col([
+                                create_metric_card(metrics[metric], label, color)
+                            ], md=3, sm=6)
+                            for metric, label, color in cards
+                        ], className="g-3")
+                    ], style={
+                        "marginBottom": "2rem",
+                        "paddingBottom": "1.5rem",
+                        "borderBottom": f"1px solid {COLORS['border']}"
+                    })
+                
+                all_sections.append(model_section)
+            
+            # Remove border from last section
+            if all_sections:
+                all_sections[-1].style["borderBottom"] = "none"
+            
+            return html.Div(all_sections)
+        
+        # Single model mode
+        if len(groups) > 1:
+            group_rows = []
+            for group_name, group_df in groups:
+                model_df = group_df[group_df["model"] == selected_model]
+                metrics = global_metrics(model_df)
+                
+                group_rows.append(
+                    html.Div([
+                        html.Span(group_name, style={
+                            "fontSize": "0.85rem",
+                            "fontWeight": "600",
+                            "color": COLORS["text_secondary"],
+                            "marginBottom": "0.5rem",
+                            "display": "block"
+                        }),
+                        dbc.Row([
+                            dbc.Col([
+                                create_metric_card(metrics[metric], label, color)
+                            ], md=3, sm=6)
+                            for metric, label, color in cards
+                        ], className="g-2")
+                    ], style={"marginBottom": "1.5rem"})
+                )
+            return html.Div(group_rows)
+        else:
+            model_df = groups[0][1][groups[0][1]["model"] == selected_model]
+            metrics = global_metrics(model_df)
+            
+            return dbc.Row([
+                dbc.Col([
+                    create_metric_card(metrics[metric], label, color)
+                ], md=3, sm=6, style={"marginBottom": "1rem"})
+                for metric, label, color in cards
+            ])
 
     # ═══════════════════════════════════════════════════════════════════════════════
     # VIEW 1: Controlos do Gráfico de Métricas (7 Funcionalidades)
@@ -246,25 +316,29 @@ def register_callbacks(app, eval_df: pd.DataFrame, pipelines: dict, cat_cols: li
         Output("metrics-comparison-chart", "figure"),
         [Input("threshold-slider", "value"),
          Input("display-mode-store", "data"),
-         Input("subgroup-selector", "value"),
+         Input("sensitive-selector", "value"),
          Input("global-decision-mode-store", "data")]
     )
-    def update_metrics_comparison(threshold, display_mode, subgroup, decision_mode):
+    def update_metrics_comparison(threshold, display_mode, analysis_focus, decision_mode):
         """Atualiza o gráfico de comparação de métricas."""
+        # Para o gráfico de métricas, usamos "global" quando analysis_focus é global
+        # Quando é sex/race, a função precisa mostrar comparação entre subgrupos
         return create_metrics_comparison_chart(
             eval_df, 
             threshold, 
             display_mode=display_mode,
-            subgroup=subgroup,
+            subgroup=analysis_focus,  # Passa "global", "sex" ou "race"
             decision_mode=decision_mode or "balanced"
         )
 
     @app.callback(
         Output("roc-curves-chart", "figure"),
-        Input("threshold-slider", "value")
+        [Input("sensitive-selector", "value"),
+         Input("model-selector", "value")]
     )
-    def update_roc_curves(_):
-        return create_roc_curves(eval_df)
+    def update_roc_curves(analysis_focus, model_focus):
+        """Atualiza as curvas ROC com suporte a subgrupos."""
+        return create_roc_curves(eval_df, analysis_focus, model_focus)
 
     # ═══════════════════════════════════════════════════════════════════════════════
     # CALIBRATION PLOT AVANÇADO
@@ -315,13 +389,13 @@ def register_callbacks(app, eval_df: pd.DataFrame, pipelines: dict, cat_cols: li
          Output("calibration-insight-text", "children")],
         [Input("threshold-slider", "value"),
          Input("calib-bins-store", "data"),
-         Input("calib-subgroup-selector", "value"),
+         Input("sensitive-selector", "value"),
          Input("global-decision-mode-store", "data"),
          Input("calib-error-threshold", "value")]
     )
-    def update_calibration_plot(threshold, n_bins, subgroup_mode, decision_mode, error_threshold):
-        """Atualiza o calibration plot avançado ligado ao decision mode global."""
-        if subgroup_mode == "global":
+    def update_calibration_plot(threshold, n_bins, analysis_focus, decision_mode, error_threshold):
+        """Atualiza o calibration plot - global ou comparação entre subgrupos."""
+        if analysis_focus == "global":
             fig, insight = create_advanced_calibration_plot(
                 eval_df,
                 threshold=threshold,
@@ -332,12 +406,12 @@ def register_callbacks(app, eval_df: pd.DataFrame, pipelines: dict, cat_cols: li
                 error_threshold=error_threshold
             )
         else:
-            # Mostrar comparação entre subgrupos
+            # Mostrar comparação entre subgrupos (Male vs Female ou White vs Non-White)
             fig, insight = create_calibration_subgroup_comparison(
                 eval_df,
                 threshold=threshold,
                 n_bins=n_bins,
-                subgroup_type=subgroup_mode,
+                subgroup_type=analysis_focus,  # "sex" ou "race"
                 decision_mode=decision_mode,
                 error_threshold=error_threshold
             )
@@ -364,9 +438,10 @@ def register_callbacks(app, eval_df: pd.DataFrame, pipelines: dict, cat_cols: li
          Output("pr-delta-ap-text", "children")],
         [Input("threshold-slider", "value"),
          Input("global-decision-mode-store", "data"),
-         Input("pr-settings-store", "data")]
+         Input("pr-settings-store", "data"),
+         Input("sensitive-selector", "value")]
     )
-    def update_pr_curve(threshold, decision_mode, pr_settings):
+    def update_pr_curve(threshold, decision_mode, pr_settings, analysis_focus):
         """Atualiza a curva PR com todas as funcionalidades enhanced."""
         show_area = pr_settings.get("show_area", False) if pr_settings else False
         
@@ -374,7 +449,8 @@ def register_callbacks(app, eval_df: pd.DataFrame, pipelines: dict, cat_cols: li
             eval_df,
             threshold=threshold,
             decision_mode=decision_mode or "balanced",
-            show_area=show_area
+            show_area=show_area,
+            analysis_focus=analysis_focus or "global"
         )
         
         return fig, delta_ap_text
@@ -383,9 +459,10 @@ def register_callbacks(app, eval_df: pd.DataFrame, pipelines: dict, cat_cols: li
         Output("threshold-analysis-chart", "figure"),
         [Input("model-selector", "value"),
          Input("threshold-slider", "value"),
-         Input("global-decision-mode-store", "data")]
+         Input("global-decision-mode-store", "data"),
+         Input("sensitive-selector", "value")]
     )
-    def update_threshold_analysis(selected_model, threshold, decision_mode):
+    def update_threshold_analysis(selected_model, threshold, decision_mode, analysis_focus):
         """Atualiza o gráfico Metrics vs Threshold com funcionalidades enhanced."""
         # Always show all metrics
         show_precision = True
@@ -406,7 +483,8 @@ def register_callbacks(app, eval_df: pd.DataFrame, pipelines: dict, cat_cols: li
             show_precision=show_precision,
             show_recall=show_recall,
             show_f1=show_f1,
-            overlay_models=overlay_models
+            overlay_models=overlay_models,
+            analysis_focus=analysis_focus or "global"
         )
 
     @app.callback(
@@ -414,9 +492,10 @@ def register_callbacks(app, eval_df: pd.DataFrame, pipelines: dict, cat_cols: li
         [Input("model-selector", "value"),
          Input("threshold-slider", "value"),
          Input("global-decision-mode-store", "data"),
-         Input("fp-fn-display-toggle", "value")]
+         Input("fp-fn-display-toggle", "value"),
+         Input("sensitive-selector", "value")]
     )
-    def update_fp_fn_evolution(selected_model, threshold, decision_mode, display_mode):
+    def update_fp_fn_evolution(selected_model, threshold, decision_mode, display_mode, analysis_focus):
         """Atualiza o gráfico Errors vs Threshold com funcionalidades enhanced."""
         show_counts = display_mode == "counts"
         # Default to logreg when "both" is selected (this chart shows single model)
@@ -427,7 +506,8 @@ def register_callbacks(app, eval_df: pd.DataFrame, pipelines: dict, cat_cols: li
             selected_model=effective_model,
             threshold=threshold,
             decision_mode=decision_mode or "balanced",
-            show_counts=show_counts
+            show_counts=show_counts,
+            analysis_focus=analysis_focus or "global"
         )
 
 
@@ -439,13 +519,21 @@ def register_callbacks(app, eval_df: pd.DataFrame, pipelines: dict, cat_cols: li
         Output("pcp-operating-points-chart", "figure"),
         [Input("threshold-slider", "value"),
          Input("global-decision-mode-store", "data"),
-         Input("pcp-subgroup-mode", "value"),
+         Input("sensitive-selector", "value"),
          Input("pcp-color-by", "value")]
     )
-    def update_pcp_operating_points(threshold, decision_mode, subgroup_mode, color_by):
+    def update_pcp_operating_points(threshold, decision_mode, analysis_focus, color_by):
         """Atualiza o Parallel Coordinates Plot de operating points."""
-        # Build operating points dataframe
-        subgroup_attr = "sex" if subgroup_mode == "Sex" else "race" if subgroup_mode == "Race" else "sex"
+        # Map analysis_focus to subgroup_mode format
+        if analysis_focus == "sex":
+            subgroup_mode = "Sex"
+            subgroup_attr = "sex"
+        elif analysis_focus == "race":
+            subgroup_mode = "Race"
+            subgroup_attr = "race"
+        else:
+            subgroup_mode = "Global"
+            subgroup_attr = "sex"  # Default, not used in Global mode
         
         ops_df = build_operating_points_df(
             eval_df,
@@ -470,15 +558,23 @@ def register_callbacks(app, eval_df: pd.DataFrame, pipelines: dict, cat_cols: li
         Output("pcp-selected-table-container", "children"),
         [Input("threshold-slider", "value"),
          Input("global-decision-mode-store", "data"),
-         Input("pcp-subgroup-mode", "value"),
+         Input("sensitive-selector", "value"),
          Input("pcp-operating-points-chart", "restyleData")]
     )
-    def update_pcp_selected_table(threshold, decision_mode, subgroup_mode, restyle_data):
+    def update_pcp_selected_table(threshold, decision_mode, analysis_focus, restyle_data):
         """Atualiza a tabela de operating points selecionados."""
         import dash_bootstrap_components as dbc
         
-        # Build operating points dataframe
-        subgroup_attr = "sex" if subgroup_mode == "Sex" else "race" if subgroup_mode == "Race" else "sex"
+        # Map analysis_focus to subgroup_mode format
+        if analysis_focus == "sex":
+            subgroup_mode = "Sex"
+            subgroup_attr = "sex"
+        elif analysis_focus == "race":
+            subgroup_mode = "Race"
+            subgroup_attr = "race"
+        else:
+            subgroup_mode = "Global"
+            subgroup_attr = "sex"  # Default, not used in Global mode
         
         ops_df = build_operating_points_df(
             eval_df,
@@ -545,39 +641,20 @@ def register_callbacks(app, eval_df: pd.DataFrame, pipelines: dict, cat_cols: li
         outlines = [triggered != btn for btn in modes.keys()]
         return mode, *outlines
 
-    # Confusion Matrix Comparison Mode Toggle
-    @app.callback(
-        [Output("cm-comparison-mode-store", "data"),
-         Output("btn-cm-single", "outline"),
-         Output("btn-cm-compare", "outline"),
-         Output("btn-cm-delta", "outline")],
-        [Input("btn-cm-single", "n_clicks"),
-         Input("btn-cm-compare", "n_clicks"),
-         Input("btn-cm-delta", "n_clicks")],
-        prevent_initial_call=True
-    )
-    def update_cm_comparison_mode(n1, n2, n3):
-        triggered = ctx.triggered_id
-        modes = {
-            "btn-cm-single": "single",
-            "btn-cm-compare": "side_by_side",
-            "btn-cm-delta": "delta"
-        }
-        mode = modes.get(triggered, "single")
-        outlines = [triggered != btn for btn in modes.keys()]
-        return mode, *outlines
-
     @app.callback(
         Output("confusion-matrix-chart", "figure"),
         [Input("model-selector", "value"),
          Input("threshold-slider", "value"),
-         Input("cm-norm-mode-store", "data"),
-         Input("cm-comparison-mode-store", "data")]
+         Input("cm-norm-mode-store", "data")]
     )
-    def update_confusion_matrix(selected_model, threshold, norm_mode, comparison_mode):
-        # Force side_by_side comparison when "both" is selected
-        effective_comparison = "side_by_side" if selected_model == "both" else (comparison_mode or "single")
-        effective_model = "logreg" if selected_model == "both" else selected_model
+    def update_confusion_matrix(selected_model, threshold, norm_mode):
+        # Derive comparison mode from model-selector
+        if selected_model == "both":
+            effective_comparison = "side_by_side"
+            effective_model = "logreg"  # not used for side_by_side
+        else:
+            effective_comparison = "single"
+            effective_model = selected_model
         
         return create_advanced_confusion_matrix(
             eval_df, effective_model, threshold, 
@@ -588,60 +665,34 @@ def register_callbacks(app, eval_df: pd.DataFrame, pipelines: dict, cat_cols: li
     @app.callback(
         Output("cm-mode-caption", "children"),
         [Input("cm-norm-mode-store", "data"),
-         Input("cm-comparison-mode-store", "data")]
+         Input("model-selector", "value")]
     )
-    def update_cm_caption(norm_mode, comparison_mode):
+    def update_cm_caption(norm_mode, selected_model):
         norm_descriptions = {
             "counts": "Showing raw counts (TP, TN, FP, FN).",
             "pct_total": "Showing each cell as % of total dataset.",
             "pct_row": "Row-normalized: Shows TPR, FPR, TNR, FNR rates (each row sums to 100%).",
             "pct_col": "Column-normalized: Shows Precision, NPV rates (each column sums to 100%)."
         }
-        comparison_descriptions = {
-            "single": "Single model view.",
-            "side_by_side": "Comparing both models side-by-side with same color scale.",
-            "delta": "Delta view: Positive = RF has more, Negative = LR has more."
-        }
         norm_desc = norm_descriptions.get(norm_mode, "")
-        comp_desc = comparison_descriptions.get(comparison_mode, "")
+        if selected_model == "both":
+            comp_desc = "Comparing both models side-by-side."
+        else:
+            comp_desc = f"Showing {MODEL_NAMES.get(selected_model, selected_model)}."
         return f"{norm_desc} {comp_desc} Hover cells for rich diagnostics."
 
     @app.callback(
         Output("error-tradeoff-chart", "figure"),
         [Input("threshold-slider", "value"),
-         Input("error-tradeoff-subgroup", "value")]
+         Input("sensitive-selector", "value")]
     )
-    def update_error_tradeoff(threshold, subgroup):
-        return create_error_tradeoff_scatter(eval_df, threshold, subgroup)
+    def update_error_tradeoff(threshold, analysis_focus):
+        return create_error_tradeoff_scatter(eval_df, threshold, analysis_focus or "global")
 
 
     # ═══════════════════════════════════════════════════════════════════════════════
     # VIEW 4: Fairness
     # ═══════════════════════════════════════════════════════════════════════════════
-
-    @app.callback(
-        Output("fairness-accuracy-chart", "figure"),
-        [Input("sensitive-selector", "value"),
-         Input("threshold-slider", "value")]
-    )
-    def update_fairness_accuracy(sensitive_col, threshold):
-        return create_fairness_accuracy_chart(eval_df, sensitive_col, threshold)
-
-    @app.callback(
-        Output("fairness-disparity-chart", "figure"),
-        [Input("sensitive-selector", "value"),
-         Input("threshold-slider", "value")]
-    )
-    def update_fairness_disparity(sensitive_col, threshold):
-        return create_fairness_disparity_chart(eval_df, sensitive_col, threshold)
-
-    @app.callback(
-        Output("fairness-rates-chart", "figure"),
-        [Input("sensitive-selector", "value"),
-         Input("threshold-slider", "value")]
-    )
-    def update_fairness_rates(sensitive_col, threshold):
-        return create_fairness_rates_chart(eval_df, sensitive_col, threshold)
     
     @app.callback(
         Output("fairness-sunburst-chart", "figure"),
@@ -650,6 +701,8 @@ def register_callbacks(app, eval_df: pd.DataFrame, pipelines: dict, cat_cols: li
          Input("model-selector", "value")]
     )
     def update_fairness_sunburst(sensitive_col, threshold, model_focus):
+        if sensitive_col == "global":
+            sensitive_col = "sex"
         return create_fairness_sunburst(eval_df, sensitive_col, threshold, model_focus)
 
     # ═══════════════════════════════════════════════════════════════════════════════
@@ -666,6 +719,10 @@ def register_callbacks(app, eval_df: pd.DataFrame, pipelines: dict, cat_cols: li
     )
     def update_horizon_chart(sensitive_col, threshold, metric_name, model_focus):
         """Atualiza o Horizon Graph de fairness."""
+        # Para visualizações de fairness, "global" usa "sex" como default
+        if sensitive_col == "global":
+            sensitive_col = "sex"
+        
         fig = create_fairness_horizon_chart(
             eval_df,
             sensitive_col=sensitive_col,
@@ -733,7 +790,7 @@ def register_callbacks(app, eval_df: pd.DataFrame, pipelines: dict, cat_cols: li
     def reset_controls(n_clicks):
         """Reset todos os controlos para valores default."""
         if n_clicks:
-            return 0.5, "both", "sex", "balanced"
+            return 0.5, "both", "global", "balanced"
         return dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
     # ═══════════════════════════════════════════════════════════════════════════════
@@ -803,18 +860,3 @@ def register_callbacks(app, eval_df: pd.DataFrame, pipelines: dict, cat_cols: li
             }
         
         return {"model": None, "metric": None}
-
-    @app.callback(
-        Output("selection-info", "children"),
-        Input("selection-store", "data")
-    )
-    def update_selection_display(selection):
-        """Mostra informação da seleção atual na sidebar."""
-        if selection and selection.get("model"):
-            model_info = selection.get("model", "Unknown")
-            metric_info = selection.get("metric", "")
-            return html.Div([
-                html.Span(f"Selected: {metric_info}", style={"color": COLORS["primary_light"], "fontSize": "0.85rem", "display": "block"}),
-                html.Span("Click to clear", style={"color": COLORS["text_muted"], "fontSize": "0.75rem"})
-            ])
-        return html.Span("Click on charts to select", style={"color": COLORS["text_muted"], "fontSize": "0.8rem"})

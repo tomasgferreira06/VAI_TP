@@ -94,6 +94,25 @@ CACHE_CONFIG = {
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# CONFIGURAÇÕES DE GRÁFICOS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Configuração padrão de legenda para todos os gráficos
+# Posiciona a legenda no fundo do card, encostada à esquerda
+CHART_LEGEND_CONFIG = {
+    "orientation": "h",           # Horizontal para ficar em linha
+    "yanchor": "top",
+    "y": -0.5,                    # Abaixo do gráfico
+    "xanchor": "left",
+    "x": 0,                        # Encostado à esquerda
+    "bgcolor": "rgba(0,0,0,0.3)",  # Fundo semi-transparente
+    "bordercolor": "rgba(255,255,255,0.1)",
+    "borderwidth": 1,
+    "font": {"size": 10, "color": COLORS["text_secondary"]},
+}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # CONFIGURAÇÕES DA APP
 # ═══════════════════════════════════════════════════════════════════════════════
 
