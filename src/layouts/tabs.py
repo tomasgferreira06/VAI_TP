@@ -374,9 +374,9 @@ def create_tab_tradeoffs() -> html.Div:
             html.Div([
                 html.I(className="bi bi-info-circle", style={"fontSize": "1.1rem", "marginRight": "0.75rem", "color": COLORS["primary_light"]}),
                 html.Span(
-                    "O threshold de decisão afeta diretamente o trade-off entre Precision e Recall. "
-                    "Um threshold mais alto aumenta a Precision (menos FP) mas reduz o Recall (mais FN). "
-                    "Use o Decision Mode nos controlos globais para enfatizar diferentes regiões operacionais.",
+                    "The decision threshold directly affects the trade-off between Precision and Recall. "
+                    "A higher threshold increases Precision (fewer FP) but reduces Recall (more FN). "
+                    "Use the Decision Mode in the global controls to emphasize different operating regions.",
                     style={"color": COLORS["text_secondary"], "fontSize": "0.9rem"}
                 )
             ], style={"display": "flex", "alignItems": "center"})
@@ -705,27 +705,20 @@ def create_horizon_controls() -> html.Div:
 def create_tab_fairness() -> html.Div:
     """Tab de análise de fairness."""
     return html.Div([
-        # Fairness Explanation
+        # Explanation Card
         html.Div([
             html.Div([
-                html.I(className="bi bi-balance-scale", style={"fontSize": "1.25rem", "marginRight": "0.75rem", "color": COLORS["accent"]}),
-                html.Div([
-                    html.Span("Fairness Analysis", style={
-                        "fontWeight": "600", 
-                        "color": COLORS["text_primary"],
-                        "display": "block",
-                        "marginBottom": "0.25rem"
-                    }),
-                    html.Span(
-                        "Avalia se o modelo trata de forma equitativa diferentes grupos demográficos. "
-                        "Disparidades significativas podem indicar bias no modelo.",
-                        style={"color": COLORS["text_secondary"], "fontSize": "0.85rem"}
-                    )
-                ])
-            ], style={"display": "flex", "alignItems": "flex-start"})
+                html.I(className="bi bi-info-circle", style={"fontSize": "1.1rem", "marginRight": "0.75rem", "color": COLORS["primary_light"]}),
+                html.Span(
+                    "Fairness Analysis evaluates whether the model treats different demographic groups equitably. "
+                    "Significant disparities may indicate bias in the model. Use the visualizations below to identify "
+                    "which groups are systematically disadvantaged across different thresholds.",
+                    style={"color": COLORS["text_secondary"], "fontSize": "0.9rem"}
+                )
+            ], style={"display": "flex", "alignItems": "center"})
         ], style={
-            "background": f"{COLORS['accent']}11",
-            "border": f"1px solid {COLORS['accent']}33",
+            "background": f"{COLORS['primary']}11",
+            "border": f"1px solid {COLORS['primary']}33",
             "borderRadius": "12px",
             "padding": "1rem 1.25rem",
             "marginBottom": "1.5rem"
@@ -770,7 +763,7 @@ def create_tab_fairness() -> html.Div:
                             }
                         ),
                         html.P(
-                            "💡 Groups with consistently darker bands at the same "
+                            "Groups with consistently darker bands at the same "
                             "thresholds are systematically disadvantaged.",
                             style={
                                 "fontSize": "0.78rem",

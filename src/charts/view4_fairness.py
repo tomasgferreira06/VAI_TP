@@ -188,7 +188,7 @@ def create_fairness_sunburst(
                 line=dict(color=COLORS["bg_card"], width=2)
             ),
             hovertemplate="<b>%{label}</b><br>Count: %{value}<br>Percentage: %{percentParent:.1%}<extra></extra>",
-            textfont=dict(size=10),
+            textfont=dict(size=10, color="#FFFFFF"),
             insidetextorientation="radial",
             domain=dict(column=0)
         ), row=1, col=1)
@@ -207,7 +207,7 @@ def create_fairness_sunburst(
                 line=dict(color=COLORS["bg_card"], width=2)
             ),
             hovertemplate="<b>%{label}</b><br>Count: %{value}<br>Percentage: %{percentParent:.1%}<extra></extra>",
-            textfont=dict(size=10),
+            textfont=dict(size=10, color="#FFFFFF"),
             insidetextorientation="radial",
             domain=dict(column=1)
         ), row=1, col=2)
@@ -247,7 +247,7 @@ def create_fairness_sunburst(
                 line=dict(color=COLORS["bg_card"], width=2)
             ),
             hovertemplate="<b>%{label}</b><br>Count: %{value}<br>Percentage: %{percentParent:.1%}<extra></extra>",
-            textfont=dict(size=11),
+            textfont=dict(size=11, color="#FFFFFF"),
             insidetextorientation="radial"
         ))
         
@@ -496,22 +496,23 @@ def create_fairness_horizon_chart(
                 row=row,
                 col=col,
             )
-    # Threshold label on first row
+    # Threshold label on disparity row - positioned at mid-height to avoid title overlap
     for col in range(1, n_cols + 1):
-        xr, yr = _axref(1, col)
+        xr, yr = _axref(n_rows, col)
         fig.add_annotation(
             x=current_threshold,
-            y=band_h,
+            y=global_max_gap * 0.5,  # Mid-height of disparity plot
             text=f"t={current_threshold:.2f}",
             showarrow=False,
             font=dict(size=9, color=COLORS["text_primary"]),
-            bgcolor="rgba(30,41,59,0.8)",
+            bgcolor="rgba(30,41,59,0.9)",
             bordercolor=COLORS["text_primary"],
             borderwidth=1,
-            borderpad=2,
+            borderpad=3,
             xref=xr,
             yref=yr,
-            yshift=14,
+            xanchor="left",
+            xshift=5,
         )
 
     # ── Y-axis ranges ────────────────────────────────────────────────────

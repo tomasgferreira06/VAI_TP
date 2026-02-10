@@ -321,15 +321,18 @@ def register_callbacks(app, eval_df: pd.DataFrame, pipelines: dict, cat_cols: li
     )
     def update_metrics_comparison(threshold, display_mode, analysis_focus, decision_mode):
         """Atualiza o gráfico de comparação de métricas."""
+        print(f"[DEBUG] update_metrics_comparison called: threshold={threshold}, display_mode={display_mode}, analysis_focus={analysis_focus}, decision_mode={decision_mode}")
         # Para o gráfico de métricas, usamos "global" quando analysis_focus é global
         # Quando é sex/race, a função precisa mostrar comparação entre subgrupos
-        return create_metrics_comparison_chart(
+        result = create_metrics_comparison_chart(
             eval_df, 
             threshold, 
             display_mode=display_mode,
             subgroup=analysis_focus,  # Passa "global", "sex" ou "race"
             decision_mode=decision_mode or "balanced"
         )
+        print(f"[DEBUG] metrics chart: {len(result.data)} traces, title={result.layout.title.text[:50] if result.layout.title.text else 'None'}")
+        return result
 
     @app.callback(
         Output("roc-curves-chart", "figure"),

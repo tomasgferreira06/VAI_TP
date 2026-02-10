@@ -355,7 +355,6 @@ def create_metrics_comparison_chart(
         legend=CHART_LEGEND_CONFIG,
         height=400,
         margin=dict(b=100),  # Espaço extra para a legenda no fundo
-        transition=dict(duration=500, easing="cubic-in-out")
     )
     
     return fig
@@ -780,13 +779,13 @@ def generate_calibration_insight(
         avg_abs_error = np.mean([b["abs_error"] for b in bins])
         
         if avg_abs_error < 0.03:
-            calibration_quality = "bem calibrado"
+            calibration_quality = "well calibrated"
         elif avg_abs_error < 0.07:
-            calibration_quality = "razoavelmente calibrado"
+            calibration_quality = "reasonably calibrated"
         else:
-            calibration_quality = "com problemas de calibração"
+            calibration_quality = "with calibration issues"
         
-        insight = f"{model_name} está {calibration_quality} (Brier={brier:.3f})"
+        insight = f"{model_name} is {calibration_quality} (Brier={brier:.3f})"
         
         # Identificar regiões problemáticas
         if high_error_bins:
@@ -795,17 +794,17 @@ def generate_calibration_insight(
             underconfident_bins = [b for b in high_error_bins if b["calibration_error"] > 0]
             
             if len(overconfident_bins) > len(underconfident_bins):
-                region = "alta" if np.mean([b["bin_center"] for b in overconfident_bins]) > 0.5 else "baixa"
-                insight += f"; overconfident na região de {region} probabilidade"
+                region = "high" if np.mean([b["bin_center"] for b in overconfident_bins]) > 0.5 else "low"
+                insight += f"; overconfident in the {region} probability region"
             elif underconfident_bins:
-                region = "alta" if np.mean([b["bin_center"] for b in underconfident_bins]) > 0.5 else "baixa"
-                insight += f"; underconfident na região de {region} probabilidade"
+                region = "high" if np.mean([b["bin_center"] for b in underconfident_bins]) > 0.5 else "low"
+                insight += f"; underconfident in the {region} probability region"
         
         insights.append(insight)
     
     # Adicionar contexto de subgrupo
     if subgroup != "global":
-        insights.append(f"(Análise para subgrupo específico - interpretar com cautela)")
+        insights.append(f"(Analysis for specific subgroup - interpret with caution)")
     
     return ". ".join(insights) + "."
 
@@ -871,7 +870,7 @@ def create_advanced_calibration_plot(
         x=[0, 1], y=[0, 1],
         mode="lines",
         line=dict(dash="dash", color=COLORS["text_muted"], width=1.5),
-        name="Calibração Perfeita",
+        name="Perfect Calibration",
         hoverinfo="skip"
     ))
     
@@ -980,8 +979,8 @@ def create_advanced_calibration_plot(
             text=full_title,
             font=dict(size=16)
         ),
-        xaxis_title="Probabilidade Prevista (média do bin)",
-        yaxis_title="Fração de Positivos Observados",
+        xaxis_title="Mean Predicted Probability (bin center)",
+        yaxis_title="Fraction of Positives Observed",
         xaxis_range=[0, 1],
         yaxis_range=[0, 1.05],
         height=420,
@@ -1048,7 +1047,7 @@ def create_calibration_subgroup_comparison(
         x=[0, 1], y=[0, 1],
         mode="lines",
         line=dict(dash="dash", color=COLORS["text_muted"], width=1.5),
-        name="Calibração Perfeita",
+        name="Perfect Calibration",
         hoverinfo="skip"
     ))
     
