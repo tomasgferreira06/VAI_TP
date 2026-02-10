@@ -9,7 +9,7 @@ from src.config.settings import COLORS, MODEL_NAMES
 
 def create_metric_card(value, label: str, color: str = None, icon: str = None):
     """
-    Cria um card de métrica estilizado.
+    Cria um card.
     
     Args:
         value: Valor da métrica (float ou string)
@@ -36,7 +36,6 @@ def create_metric_card(value, label: str, color: str = None, icon: str = None):
 def create_comparison_metric_card(metric_name: str, logreg_value: float, rf_value: float, label: str):
     """
     Card de métrica com comparação lado a lado de 2 modelos.
-    Design premium com indicador de qual modelo é melhor.
     
     Args:
         metric_name: Nome da métrica

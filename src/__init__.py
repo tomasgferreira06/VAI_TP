@@ -1,4 +1,3 @@
 # Model Evaluation Dashboard
-# Projeto VAI - Visualização de Informação
-
+# Projeto VAI - Trabalho Prático
 __version__ = "1.0.0"

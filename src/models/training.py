@@ -80,7 +80,7 @@ def train_pipelines(
         num_cols: Colunas numéricas
         
     Returns:
-        Dicionário com pipelines treinados
+        pipelines treinados
     """
     preprocessor = create_preprocessor(cat_cols, num_cols)
     models = create_models()
@@ -107,17 +107,17 @@ def predict_table(
     threshold: float = 0.5
 ) -> pd.DataFrame:
     """
-    Gera tabela de predições para um modelo.
+    Devolve tabela de predictions para um modelo.
     
     Args:
         pipe: Pipeline treinado
         X: Features
         y: Target real
         model_name: Nome do modelo
-        threshold: Limiar de decisão
+        threshold: threshold de decisão
         
     Returns:
-        DataFrame com predições
+        DataFrame com predictions
     """
     proba = pipe.predict_proba(X)[:, 1]
     pred = (proba >= threshold).astype(int)
@@ -130,7 +130,7 @@ def predict_table(
         "y_pred": pred
     })
 
-    # Adicionar sensitive cols
+    # Adicionar sensitive cols (sex, race)
     for c in SENSITIVE_COLUMNS:
         out[c] = X[c].values
 

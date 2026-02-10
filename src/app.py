@@ -1,6 +1,3 @@
-"""
-Aplicação Dash principal.
-"""
 from dash import Dash, html, dcc
 import dash_bootstrap_components as dbc
 import plotly.io as pio
@@ -19,7 +16,6 @@ from src.layouts.tabs import (
 
 
 def create_plotly_template() -> dict:
-    """Cria o template Plotly personalizado."""
     return {
         "layout": {
             "paper_bgcolor": "rgba(0,0,0,0)",
