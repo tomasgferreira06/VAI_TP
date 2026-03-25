@@ -20,7 +20,7 @@ def main():
     print("\n[1/5] A verificar cache...")
     
     if cache_exists():
-        # Carregar do cache (rápido!)
+        # Carregar do cache
         print("      Cache encontrado! A carregar...")
         eval_df, pipelines = load_cache()
         
